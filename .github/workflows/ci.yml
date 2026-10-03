@@ -12,6 +12,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         node: [22, 24]
     steps:
@@ -27,7 +28,7 @@ jobs:
       - name: Smoke test
         run: |
           node dist/cli.mjs --demo --no-open --port 4399 > server.log 2>&1 &
-          for i in $(seq 1 50); do curl -sf http://127.0.0.1:4399/api/state > /dev/null && break; sleep 0.2; done
+          for i in $(seq 1 100); do curl -sf http://127.0.0.1:4399/api/state | grep -q '"phase":"ready"' && break; sleep 0.2; done
           curl -sf http://127.0.0.1:4399/api/sessions | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const n=JSON.parse(s).sessions.length;console.log(n+' sessions');if(n<50)process.exit(1)})"
           curl -sf http://127.0.0.1:4399/ | grep -q '<div id="root">'
 
