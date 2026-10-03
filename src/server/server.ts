@@ -1,0 +1,238 @@
+// Local HTTP server: JSON API, server-sent events and the built web UI.
+
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import zlib from 'node:zlib';
+import { completionOf } from '../core/acc.js';
+import type { SessionDetail, ServerState } from '../shared/types.js';
+import { aiAvailable, aiErrorMessage, readAiSummary, summarizeWithAi } from './ai.js';
+import type { Config } from './config.js';
+import type { Indexer } from './indexer.js';
+import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
+import type { Pool } from './pool.js';
+import { readStatuslineMeters } from './statusline.js';
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+  '.woff2': 'font/woff2',
+};
+
+interface DetailCacheEntry {
+  key: string;
+  detail: Omit<SessionDetail, 'ai'>;
+}
+
+export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: string): http.Server {
+  const clients = new Set<http.ServerResponse>();
+  const detailCache = new Map<string, DetailCacheEntry>();
+  const allowedHosts = new Set<string>();
+
+  const broadcast = (event: string, data: unknown) => {
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const c of clients) c.write(payload);
+  };
+  indexer.on('update', () => broadcast('update', { gen: indexer.gen }));
+  indexer.on('progress', () => broadcast('progress', indexer.progress));
+  const heartbeat = setInterval(() => broadcast('ping', { t: Date.now() }), 20_000);
+  heartbeat.unref();
+
+  const state = (): ServerState => ({
+    version: cfg.version,
+    demo: cfg.demo,
+    progress: indexer.progress,
+    sources: indexer.sourceInfo,
+    sessions: indexer.entries.size,
+    aiAvailable: aiAvailable(),
+    aiModel: cfg.aiModel,
+    cacheFile: indexer.cacheFile,
+    generation: indexer.gen,
+  });
+
+  async function detailOf(id: string): Promise<Omit<SessionDetail, 'ai'> | undefined> {
+    const e = indexer.entryById(id);
+    if (!e) return undefined;
+    const key = `${e.file}:${e.size}:${e.mtime}`;
+    const hit = detailCache.get(id);
+    if (hit && hit.key === key) return hit.detail;
+    const detail = await pool.run<Omit<SessionDetail, 'ai'>>({ kind: 'detail', file: e.file, agent: e.agent }, true);
+    detail.summary = indexer.summaries().find((s) => s.id === id) ?? { ...detail.summary, projectPath: e.summary.projectPath, project: e.summary.project };
+    detailCache.set(id, { key, detail });
+    if (detailCache.size > 30) detailCache.delete(detailCache.keys().next().value!);
+    return detail;
+  }
+
+  const server = http.createServer(async (req, res) => {
+    try {
+      const host = (req.headers.host ?? '').toLowerCase();
+      if (!isAllowedHost(host, allowedHosts, cfg.host)) {
+        res.writeHead(403).end('Forbidden host');
+        return;
+      }
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const p = url.pathname;
+      if (p.startsWith('/api/')) {
+        if (req.method === 'POST' && req.headers['sec-fetch-site'] === 'cross-site') {
+          res.writeHead(403).end();
+          return;
+        }
+        await api(p, url, req, res);
+        return;
+      }
+      serveStatic(webDir, p, req, res);
+    } catch (err) {
+      sendJson(req, res, { error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  });
+
+  async function api(p: string, url: URL, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    switch (p) {
+      case '/api/state':
+        return sendJson(req, res, state());
+      case '/api/sessions':
+        return sendJson(req, res, indexer.delta(Number(url.searchParams.get('since') ?? 0)));
+      case '/api/session': {
+        const id = url.searchParams.get('id') ?? '';
+        const d = await detailOf(id);
+        if (!d) return sendJson(req, res, { error: 'not found' }, 404);
+        const ai = readAiSummary(cfg.dataDir, id);
+        return sendJson(req, res, { ...d, ai, completion: completionOf(d.summary, ai ? ai.workComplete : null) });
+      }
+      case '/api/search':
+        return sendJson(req, res, { ids: indexer.search(url.searchParams.get('q') ?? '') });
+      case '/api/usage':
+        return sendJson(req, res, { meters: indexer.usage(readStatuslineMeters(cfg.dataDir)) });
+      case '/api/instructions': {
+        const project = url.searchParams.get('project') ?? '';
+        if (!isKnownProject(project)) return sendJson(req, res, { error: 'unknown project' }, 400);
+        const info = await instructionsFor(project);
+        const globals = globalInstructionFiles().map((f) => ({ path: f, exists: fs.existsSync(f) }));
+        return sendJson(req, res, { ...info, globals });
+      }
+      case '/api/instructions/version': {
+        const project = url.searchParams.get('project') ?? '';
+        const file = url.searchParams.get('file') ?? '';
+        if (url.searchParams.get('global') === '1') {
+          if (!globalInstructionFiles().includes(file)) return sendJson(req, res, { error: 'unknown file' }, 400);
+          return sendJson(req, res, { content: readGlobal(file), diff: '' });
+        }
+        if (!isKnownProject(project)) return sendJson(req, res, { error: 'unknown project' }, 400);
+        const sha = url.searchParams.get('sha') || undefined;
+        return sendJson(req, res, await instructionVersion(project, file, sha));
+      }
+      case '/api/summarize': {
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        if (!aiAvailable()) return sendJson(req, res, { error: 'Set ANTHROPIC_API_KEY to enable AI summaries.' }, 400);
+        const id = url.searchParams.get('id') ?? '';
+        const lang = url.searchParams.get('lang') ?? 'en';
+        const d = await detailOf(id);
+        if (!d) return sendJson(req, res, { error: 'not found' }, 404);
+        try {
+          const ai = await summarizeWithAi(cfg.dataDir, cfg.aiModel, d, lang);
+          return sendJson(req, res, { ai });
+        } catch (err) {
+          return sendJson(req, res, { error: aiErrorMessage(err) }, 502);
+        }
+      }
+      case '/api/rescan': {
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        if (url.searchParams.get('full') === '1') indexer.clearCache();
+        void indexer.scan();
+        return sendJson(req, res, { ok: true });
+      }
+      case '/api/events': {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        });
+        res.write(`event: hello\ndata: ${JSON.stringify({ gen: indexer.gen, progress: indexer.progress })}\n\n`);
+        clients.add(res);
+        req.on('close', () => clients.delete(res));
+        return;
+      }
+      default:
+        return sendJson(req, res, { error: 'not found' }, 404);
+    }
+  }
+
+  function isKnownProject(project: string): boolean {
+    if (!project) return false;
+    for (const e of indexer.entries.values()) if (e.summary.projectPath === project) return true;
+    return false;
+  }
+
+  server.on('listening', () => {
+    const addr = server.address();
+    if (addr && typeof addr === 'object') {
+      for (const h of ['localhost', '127.0.0.1', '[::1]']) allowedHosts.add(`${h}:${addr.port}`);
+    }
+  });
+  server.on('close', () => clearInterval(heartbeat));
+  return server;
+}
+
+function isAllowedHost(host: string, allowed: Set<string>, bindHost: string): boolean {
+  if (allowed.has(host)) return true;
+  // When the user explicitly binds to another interface, accept any host header.
+  return bindHost !== '127.0.0.1' && bindHost !== 'localhost' && bindHost !== '::1';
+}
+
+function sendJson(req: http.IncomingMessage, res: http.ServerResponse, body: unknown, status = 200): void {
+  const json = Buffer.from(JSON.stringify(body));
+  const headers: Record<string, string> = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  const gz = json.length > 2048 && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''));
+  if (gz) {
+    headers['Content-Encoding'] = 'gzip';
+    res.writeHead(status, headers);
+    res.end(zlib.gzipSync(json, { level: 4 }));
+  } else {
+    res.writeHead(status, headers);
+    res.end(json);
+  }
+}
+
+const staticCache = new Map<string, { body: Buffer; gz?: Buffer; type: string }>();
+
+function serveStatic(webDir: string, pathname: string, req: http.IncomingMessage, res: http.ServerResponse): void {
+  let rel = decodeURIComponent(pathname);
+  if (rel === '/' || !path.extname(rel)) rel = '/index.html';
+  const file = path.join(webDir, path.normalize(rel).replace(/^([/\\])+/, ''));
+  if (!file.startsWith(webDir)) {
+    res.writeHead(403).end();
+    return;
+  }
+  let hit = staticCache.get(file);
+  if (!hit) {
+    if (!fs.existsSync(file)) {
+      res.writeHead(404).end('Not found');
+      return;
+    }
+    const body = fs.readFileSync(file);
+    const type = MIME[path.extname(file)] ?? 'application/octet-stream';
+    hit = { body, type, gz: /text|javascript|json|svg/.test(type) && body.length > 1024 ? zlib.gzipSync(body) : undefined };
+    staticCache.set(file, hit);
+  }
+  const immutable = rel.startsWith('/assets/');
+  const headers: Record<string, string> = {
+    'Content-Type': hit.type,
+    'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (hit.type.startsWith('text/html')) {
+    headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'";
+    headers['Referrer-Policy'] = 'no-referrer';
+  }
+  if (hit.gz && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
+    headers['Content-Encoding'] = 'gzip';
+    res.writeHead(200, headers).end(hit.gz);
+  } else {
+    res.writeHead(200, headers).end(hit.body);
+  }
+}

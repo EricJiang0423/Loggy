@@ -1,0 +1,550 @@
+// Keeps an in-memory index of every session, backed by an on-disk cache. Only files whose
+// size or mtime changed are parsed again, and growing files are resumed from the last offset.
+
+import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import path from 'node:path';
+import { PARSER_VERSION, type AccState } from '../core/acc.js';
+import type { SummaryResult } from '../core/parse.js';
+import { liveStatus } from '../shared/status.js';
+import type { Agent, IndexProgress, SessionSummary, SourceInfo, UsageMeter } from '../shared/types.js';
+import { ensureDir } from './config.js';
+import type { Pool } from './pool.js';
+
+const CACHE_VERSION = 2;
+const KEEP_STATE_MS = 3 * 86400_000;
+const HOT_MS = 20 * 60_000;
+
+export interface Entry {
+  file: string;
+  agent: Agent;
+  size: number;
+  mtime: number;
+  offset: number;
+  state?: AccState;
+  summary: SessionSummary;
+  search: string;
+  quota?: Record<string, unknown>;
+  rate?: Record<string, Record<string, unknown>>;
+  rateHist?: [number, number | null, number | null][];
+  gen: number;
+}
+
+export interface Sources {
+  claudeDirs: string[];
+  codexDirs: string[];
+}
+
+interface Discovered {
+  file: string;
+  agent: Agent;
+}
+
+export class Indexer extends EventEmitter {
+  readonly entries = new Map<string, Entry>();
+  private removed = new Map<string, number>();
+  private removedFloor = 0;
+  gen = 1;
+  progress: IndexProgress = { phase: 'idle', filesTotal: 0, filesDone: 0, bytesTotal: 0, bytesDone: 0, startedAt: 0 };
+  sourceInfo: SourceInfo[] = [];
+  private inflight = new Map<string, Promise<void>>();
+  private dirty = new Set<string>();
+  private scanning: Promise<void> | null = null;
+  private rescanAgain = false;
+  private saveTimer: NodeJS.Timeout | null = null;
+  private timers: NodeJS.Timeout[] = [];
+  private watchers: fs.FSWatcher[] = [];
+  private gitRoots = new Map<string, string>();
+  private known: Discovered[] = [];
+  readonly cacheFile: string;
+
+  constructor(
+    private readonly sources: Sources,
+    private readonly pool: Pool,
+    dataDir: string,
+  ) {
+    super();
+    this.cacheFile = path.join(ensureDir(path.join(dataDir, 'cache')), `index-v${CACHE_VERSION}.json`);
+  }
+
+  // ---------- cache ----------
+
+  loadCache(): void {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.cacheFile, 'utf8'));
+      if (raw.v !== CACHE_VERSION || raw.parser !== PARSER_VERSION || !Array.isArray(raw.entries)) return;
+      for (const e of raw.entries as Entry[]) {
+        e.gen = this.gen;
+        this.entries.set(e.file, e);
+      }
+    } catch {
+      // No cache yet, or unreadable: start from scratch.
+    }
+  }
+
+  private scheduleSave(): void {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.saveNow();
+    }, 3000);
+    this.saveTimer.unref();
+  }
+
+  saveNow(): void {
+    try {
+      const tmp = `${this.cacheFile}.${process.pid}.tmp`;
+      const entries = [...this.entries.values()].map(({ gen: _gen, ...rest }) => rest);
+      fs.writeFileSync(tmp, JSON.stringify({ v: CACHE_VERSION, parser: PARSER_VERSION, savedAt: Date.now(), entries }));
+      fs.renameSync(tmp, this.cacheFile);
+    } catch (err) {
+      console.error('[loggy] could not write cache:', (err as Error).message);
+    }
+  }
+
+  clearCache(): void {
+    this.entries.clear();
+    try {
+      fs.rmSync(this.cacheFile, { force: true });
+    } catch {
+      // ignore
+    }
+    this.gen++;
+    this.removedFloor = this.gen;
+  }
+
+  // ---------- discovery ----------
+
+  discover(): Discovered[] {
+    const out: Discovered[] = [];
+    const info: SourceInfo[] = [];
+    for (const dir of this.sources.claudeDirs) {
+      const projects = path.join(dir, 'projects');
+      const before = out.length;
+      for (const proj of readdir(projects)) {
+        if (!proj.isDirectory()) continue;
+        const pdir = path.join(projects, proj.name);
+        for (const f of readdir(pdir)) {
+          if (f.isFile() && f.name.endsWith('.jsonl')) out.push({ file: path.join(pdir, f.name), agent: 'claude' });
+          else if (f.isDirectory()) {
+            const sub = path.join(pdir, f.name, 'subagents');
+            for (const s of readdir(sub)) {
+              if (s.isFile() && s.name.endsWith('.jsonl')) out.push({ file: path.join(sub, s.name), agent: 'claude' });
+            }
+          }
+        }
+      }
+      info.push({ agent: 'claude', dir: projects, exists: fs.existsSync(projects), files: out.length - before, bytes: 0 });
+    }
+    for (const dir of this.sources.codexDirs) {
+      const before = out.length;
+      for (const sub of ['sessions', 'archived_sessions']) walkRollouts(path.join(dir, sub), out, 0);
+      info.push({ agent: 'codex', dir, exists: fs.existsSync(path.join(dir, 'sessions')), files: out.length - before, bytes: 0 });
+    }
+    // Prefer the plain file when both a .jsonl and its .zst copy exist.
+    const plain = new Set(out.filter((d) => !d.file.endsWith('.zst')).map((d) => d.file));
+    const result = out.filter((d) => !(d.file.endsWith('.zst') && plain.has(d.file.slice(0, -4))));
+    this.sourceInfo = info;
+    this.known = result;
+    return result;
+  }
+
+  // ---------- scanning ----------
+
+  /** Full pass: discover files, parse what changed, drop what disappeared. */
+  scan(): Promise<void> {
+    if (this.scanning) {
+      this.rescanAgain = true;
+      return this.scanning;
+    }
+    this.scanning = this.doScan().finally(() => {
+      this.scanning = null;
+      if (this.rescanAgain) {
+        this.rescanAgain = false;
+        void this.scan();
+      }
+    });
+    return this.scanning;
+  }
+
+  private async doScan(): Promise<void> {
+    const started = Date.now();
+    this.progress = { phase: 'scanning', filesTotal: 0, filesDone: 0, bytesTotal: 0, bytesDone: 0, startedAt: started };
+    this.emit('progress');
+    const found = this.discover();
+    const seen = new Set<string>();
+    const jobs: { file: string; agent: Agent; size: number; mtime: number }[] = [];
+    for (const d of found) {
+      seen.add(d.file);
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(d.file);
+      } catch {
+        continue;
+      }
+      const s = this.sourceInfo.find((i) => i.agent === d.agent && (d.file.startsWith(i.dir) || d.file.startsWith(path.dirname(i.dir))));
+      if (s) s.bytes += st.size;
+      const e = this.entries.get(d.file);
+      if (!e || e.size !== st.size || e.mtime !== st.mtimeMs) jobs.push({ ...d, size: st.size, mtime: st.mtimeMs });
+    }
+    for (const file of [...this.entries.keys()]) {
+      if (!seen.has(file)) this.removeEntry(file);
+    }
+    jobs.sort((a, b) => b.mtime - a.mtime);
+    this.progress = {
+      phase: 'parsing',
+      filesTotal: jobs.length,
+      filesDone: 0,
+      bytesTotal: jobs.reduce((n, j) => n + j.size, 0),
+      bytesDone: 0,
+      startedAt: started,
+    };
+    this.emit('progress');
+    let lastEmit = Date.now();
+    await Promise.all(
+      jobs.map((j) =>
+        this.parse(j.file, j.agent).then(() => {
+          this.progress.filesDone++;
+          this.progress.bytesDone += j.size;
+          if (Date.now() - lastEmit > 250) {
+            lastEmit = Date.now();
+            this.emit('progress');
+            this.emit('update');
+          }
+        }),
+      ),
+    );
+    this.progress = { ...this.progress, phase: 'ready', finishedAt: Date.now(), lastDurationMs: Date.now() - started };
+    this.emit('progress');
+    this.emit('update');
+    if (jobs.length) this.scheduleSave();
+  }
+
+  /** Parses one file (resuming when it only grew). Concurrent requests for a file coalesce. */
+  parse(file: string, agent: Agent): Promise<void> {
+    const running = this.inflight.get(file);
+    if (running) {
+      this.dirty.add(file);
+      return running;
+    }
+    const p = this.doParse(file, agent)
+      .catch((err) => {
+        console.error(`[loggy] failed to parse ${file}: ${(err as Error).message}`);
+      })
+      .finally(() => {
+        this.inflight.delete(file);
+        if (this.dirty.delete(file)) void this.parse(file, agent);
+      });
+    this.inflight.set(file, p);
+    return p;
+  }
+
+  private async doParse(file: string, agent: Agent): Promise<void> {
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(file);
+    } catch {
+      this.removeEntry(file);
+      return;
+    }
+    const prev = this.entries.get(file);
+    if (prev && prev.size === st.size && prev.mtime === st.mtimeMs) return;
+    const resume = prev?.state && st.size >= prev.size && prev.offset <= st.size ? { state: prev.state, offset: prev.offset } : undefined;
+    const r = await this.pool.run<SummaryResult>({ kind: 'summary', file, agent, resume });
+    const summary = r.summary;
+    summary.mtime = st.mtimeMs;
+    const projectPath = this.gitRoot(summary.cwd);
+    summary.projectPath = projectPath;
+    summary.project = projectPath ? path.basename(projectPath) : '(unknown)';
+    const keepState = Date.now() - st.mtimeMs < KEEP_STATE_MS && !file.endsWith('.zst');
+    const entry: Entry = {
+      file,
+      agent,
+      size: st.size,
+      mtime: st.mtimeMs,
+      offset: r.offset,
+      state: keepState ? r.state : undefined,
+      summary,
+      search: searchText(summary, r.state),
+      quota: r.quota,
+      rate: r.rate,
+      rateHist: r.rateHist,
+      gen: ++this.gen,
+    };
+    this.entries.set(file, entry);
+    if (summary.parentId) this.bumpParent(summary.parentId);
+    this.scheduleSave();
+  }
+
+  private bumpParent(parentId: string): void {
+    for (const e of this.entries.values()) {
+      if (e.summary.id === parentId) {
+        e.gen = ++this.gen;
+        return;
+      }
+    }
+  }
+
+  private removeEntry(file: string): void {
+    const e = this.entries.get(file);
+    if (!e) return;
+    this.entries.delete(file);
+    this.removed.set(e.summary.id, ++this.gen);
+    this.scheduleSave();
+  }
+
+  // ---------- live updates ----------
+
+  /** Starts fs watchers plus polling of recently active files. */
+  watch(): void {
+    const roots = [
+      ...this.sources.claudeDirs.map((d) => path.join(d, 'projects')),
+      ...this.sources.codexDirs.flatMap((d) => [path.join(d, 'sessions'), path.join(d, 'archived_sessions')]),
+    ];
+    let pending = false;
+    const kick = () => {
+      if (pending) return;
+      pending = true;
+      setTimeout(() => {
+        pending = false;
+        void this.pollHot(true);
+      }, 80).unref();
+    };
+    for (const root of roots) {
+      if (!fs.existsSync(root)) continue;
+      try {
+        const w = fs.watch(root, { recursive: true }, (_ev, name) => {
+          if (name && /\.jsonl(\.zst)?$/.test(String(name))) {
+            const file = path.join(root, String(name));
+            this.hotFiles.add(file);
+            kick();
+          }
+        });
+        w.on('error', () => undefined);
+        this.watchers.push(w);
+      } catch {
+        // Recursive watching is unsupported here; polling still works.
+      }
+    }
+    this.timers.push(setInterval(() => void this.pollHot(false), 2000));
+    this.timers.push(
+      setInterval(() => {
+        if (!this.scanning) void this.scan();
+      }, 30_000),
+    );
+    for (const t of this.timers) t.unref();
+  }
+
+  private hotFiles = new Set<string>();
+  private polling = false;
+
+  private async pollHot(fromWatch: boolean): Promise<void> {
+    if (this.polling) {
+      if (fromWatch) setTimeout(() => void this.pollHot(true), 100).unref();
+      return;
+    }
+    this.polling = true;
+    try {
+      const now = Date.now();
+      const files = new Set(this.hotFiles);
+      this.hotFiles.clear();
+      if (!fromWatch) for (const e of this.entries.values()) if (now - e.mtime < HOT_MS) files.add(e.file);
+      let changed = false;
+      const jobs: Promise<void>[] = [];
+      for (const file of files) {
+        let st: fs.Stats;
+        try {
+          st = fs.statSync(file);
+        } catch {
+          if (this.entries.has(file)) {
+            this.removeEntry(file);
+            changed = true;
+          }
+          continue;
+        }
+        const e = this.entries.get(file);
+        if (e && e.size === st.size && e.mtime === st.mtimeMs) continue;
+        const agent: Agent | undefined = e?.agent ?? this.agentOf(file);
+        if (!agent) continue;
+        changed = true;
+        jobs.push(this.parse(file, agent));
+      }
+      await Promise.all(jobs);
+      if (changed) this.emit('update');
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  private agentOf(file: string): Agent | undefined {
+    if (this.sources.claudeDirs.some((d) => file.startsWith(path.join(d, 'projects')))) return 'claude';
+    if (this.sources.codexDirs.some((d) => file.startsWith(d)) && /rollout-.*\.jsonl(\.zst)?$/.test(file)) return 'codex';
+    return undefined;
+  }
+
+  close(): void {
+    for (const t of this.timers) clearInterval(t);
+    for (const w of this.watchers) w.close();
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+      this.saveNow();
+    }
+  }
+
+  // ---------- queries ----------
+
+  /** Summaries with live status and subagent roll-ups. */
+  summaries(): SessionSummary[] {
+    const now = Date.now();
+    const byId = new Map<string, Entry>();
+    for (const e of this.entries.values()) {
+      const prev = byId.get(e.summary.id);
+      if (!prev || e.summary.end > prev.summary.end) byId.set(e.summary.id, e);
+    }
+    const kids = new Map<string, { n: number; cost: number }>();
+    for (const e of byId.values()) {
+      const p = e.summary.parentId;
+      if (!p) continue;
+      const k = kids.get(p) ?? { n: 0, cost: 0 };
+      k.n++;
+      k.cost += e.summary.costUSD;
+      kids.set(p, k);
+    }
+    const out: SessionSummary[] = [];
+    for (const e of byId.values()) {
+      const s = e.summary;
+      const k = kids.get(s.id);
+      out.push({ ...s, status: liveStatus(s, now), children: k?.n ?? 0, totalCostUSD: s.costUSD + (k?.cost ?? 0) });
+    }
+    return out;
+  }
+
+  /** Changes since a generation: full list when the client is too far behind. */
+  delta(since: number): { gen: number; full: boolean; sessions: SessionSummary[]; removed: string[] } {
+    const all = this.summaries();
+    if (!since || since < this.removedFloor) return { gen: this.gen, full: true, sessions: all, removed: [] };
+    const changedFiles = new Set<string>();
+    for (const e of this.entries.values()) if (e.gen > since) changedFiles.add(e.summary.id);
+    const removed = [...this.removed.entries()].filter(([, g]) => g > since).map(([id]) => id);
+    return { gen: this.gen, full: false, sessions: all.filter((s) => changedFiles.has(s.id)), removed };
+  }
+
+  entryById(id: string): Entry | undefined {
+    let best: Entry | undefined;
+    for (const e of this.entries.values()) if (e.summary.id === id && (!best || e.summary.end > best.summary.end)) best = e;
+    return best;
+  }
+
+  search(q: string): string[] {
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return [];
+    const out: string[] = [];
+    for (const e of this.entries.values()) {
+      if (terms.every((t) => e.search.includes(t))) out.push(e.summary.id);
+    }
+    return out;
+  }
+
+  usage(statusline: UsageMeter[]): UsageMeter[] {
+    const meters: UsageMeter[] = [];
+    // Codex: newest snapshot per limit id, history from every session.
+    const latest = new Map<string, Record<string, any>>();
+    const hist: [number, number][] = [];
+    const hist7: [number, number][] = [];
+    for (const e of this.entries.values()) {
+      for (const [id, snap] of Object.entries(e.rate ?? {})) {
+        const cur = latest.get(id);
+        if (!cur || (snap.ts as number) > cur.ts) latest.set(id, snap);
+      }
+      for (const [ts, p5, p7] of e.rateHist ?? []) {
+        if (p5 !== null) hist.push([ts, p5]);
+        if (p7 !== null) hist7.push([ts, p7]);
+      }
+    }
+    const cutoff = Date.now() - 7 * 86400_000;
+    const h5 = hist.filter(([t]) => t > cutoff).sort((a, b) => a[0] - b[0]);
+    const h7 = hist7.filter(([t]) => t > cutoff).sort((a, b) => a[0] - b[0]);
+    const ordered = [...latest.entries()].sort((a, b) => (a[0] === 'codex' ? -1 : b[0] === 'codex' ? 1 : b[1].ts - a[1].ts));
+    for (const [id, snap] of ordered.slice(0, 2)) {
+      const win = (minutes: number) => {
+        for (const w of [snap.primary, snap.secondary]) {
+          if (w && Number(w.window_minutes) === minutes) {
+            return { usedPercent: Number(w.used_percent ?? 0), windowMinutes: minutes, resetsAt: w.resets_at ? Number(w.resets_at) * 1000 : undefined };
+          }
+        }
+        return undefined;
+      };
+      meters.push({ agent: 'codex', label: id, ts: snap.ts, fiveHour: win(300), sevenDay: win(10080), history: h5, history7: h7 });
+    }
+    // Claude: statusline snapshots (exact percentages) and quota status from the logs.
+    const claudeMeters = statusline.slice();
+    let quota: Record<string, any> | undefined;
+    for (const e of this.entries.values()) {
+      if (e.quota && (!quota || (e.quota.ts as number) > quota.ts)) quota = e.quota;
+    }
+    if (claudeMeters.length) {
+      if (quota) claudeMeters[0].status = String(quota.status ?? '');
+      meters.unshift(...claudeMeters);
+    } else if (quota) {
+      meters.unshift({
+        agent: 'claude',
+        label: 'quota',
+        ts: quota.ts,
+        status: String(quota.status ?? ''),
+        history: [],
+        quotaResetsAt: quota.resetsAt ? Number(quota.resetsAt) * 1000 : undefined,
+        quotaType: quota.rateLimitType ? String(quota.rateLimitType) : undefined,
+      });
+    }
+    return meters;
+  }
+
+  // ---------- helpers ----------
+
+  gitRoot(cwd: string): string {
+    if (!cwd) return '';
+    const hit = this.gitRoots.get(cwd);
+    if (hit !== undefined) return hit;
+    let dir = cwd;
+    let root = cwd;
+    for (let i = 0; i < 30; i++) {
+      if (fs.existsSync(path.join(dir, '.git'))) {
+        root = dir;
+        break;
+      }
+      const up = path.dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    this.gitRoots.set(cwd, root);
+    return root;
+  }
+
+  knownFiles(): number {
+    return this.known.length;
+  }
+}
+
+function readdir(dir: string): fs.Dirent[] {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function walkRollouts(dir: string, out: Discovered[], depth: number): void {
+  if (depth > 5) return;
+  for (const d of readdir(dir)) {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) walkRollouts(p, out, depth + 1);
+    else if (d.isFile() && /^rollout-.*\.jsonl(\.zst)?$/.test(d.name)) out.push({ file: p, agent: 'codex' });
+  }
+}
+
+function searchText(s: SessionSummary, state: AccState): string {
+  const parts = [s.title, s.firstPrompt, s.cwd, s.branch ?? '', s.models.join(' '), s.sessionId];
+  for (const t of state.turns) parts.push(t.prompt);
+  return parts.join('\n').toLowerCase().slice(0, 30_000);
+}
