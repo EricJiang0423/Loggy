@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tgz
+.loggy-dev/
+test-results/
+artifacts/
+.DS_Store
+test/_local/

@@ -1,0 +1,50 @@
+{
+  "name": "loggy",
+  "version": "0.5.0",
+  "description": "Local dashboard for Claude Code and Codex session history: calendar, session detail, efficiency analytics.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "loggy": "dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EricJiang0423/Loggy.git"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "start": "node dist/cli.mjs",
+    "demo": "node dist/cli.mjs --demo",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "e2e": "node scripts/e2e.mjs",
+    "perf": "node scripts/perf.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.63.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3",
+    "zod": "^4.6.5"
+  }
+}
