@@ -1,8 +1,11 @@
 name: Release
 
+# Publishes a GitHub release for the version in package.json. Runs on a version tag, by
+# hand, or on every push to main (skipped when that version is already released).
 on:
   push:
     tags: ['v*']
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -15,23 +18,43 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+      - name: Decide the tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG";
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then TAG="$GITHUB_REF_NAME";
+          else TAG="v$(node -p "require('./package.json').version")"; fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v4
+        if: steps.tag.outputs.skip != 'true'
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+        if: steps.tag.outputs.skip != 'true'
       - run: npm run typecheck
+        if: steps.tag.outputs.skip != 'true'
       - run: npm test
+        if: steps.tag.outputs.skip != 'true'
       - run: npm run build
+        if: steps.tag.outputs.skip != 'true'
       - name: Check version matches tag
+        if: steps.tag.outputs.skip != 'true'
         run: test "v$(node -p "require('./package.json').version")" = "$TAG"
       - name: Package
+        if: steps.tag.outputs.skip != 'true'
         run: npm pack
       - name: Release notes
+        if: steps.tag.outputs.skip != 'true'
         run: |
           VERSION="${TAG#v}"
           awk -v v="$VERSION" '$0 ~ "^## "v {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
@@ -48,6 +71,7 @@ jobs:
           \`\`\`
           NOTES
       - name: Publish GitHub release
+        if: steps.tag.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         # Creates the tag at this commit when it does not exist yet (manual runs).
