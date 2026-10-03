@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to create and release, e.g. v0.5.0 (must match package.json)'
+        required: true
 
 permissions:
   contents: write
@@ -10,6 +15,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,12 +28,12 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Check version matches tag
-        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+        run: test "v$(node -p "require('./package.json').version")" = "$TAG"
       - name: Package
         run: npm pack
       - name: Release notes
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           awk -v v="$VERSION" '$0 ~ "^## "v {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
           cat >> notes.md <<NOTES
 
@@ -35,12 +42,13 @@ jobs:
           Requires Node.js 22.12+.
 
           \`\`\`sh
-          npx --yes https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loggy-${VERSION}.tgz
+          npx --yes https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/loggy-${VERSION}.tgz
           # or
-          npm install -g https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/loggy-${VERSION}.tgz && loggy
+          npm install -g https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/loggy-${VERSION}.tgz && loggy
           \`\`\`
           NOTES
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" loggy-*.tgz --title "Loggy $GITHUB_REF_NAME" --notes-file notes.md
+        # Creates the tag at this commit when it does not exist yet (manual runs).
+        run: gh release create "$TAG" loggy-*.tgz --target "$GITHUB_SHA" --title "Loggy $TAG" --notes-file notes.md
