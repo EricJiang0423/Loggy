@@ -34,7 +34,7 @@ Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取�
 - **项目分组**：可以在设置里选择按 git 远程仓库、git 根目录或工作目录分组。默认的智能分组在能识别仓库时（来自 git 或 Codex 日志）按仓库分组，目录已被删除的会话也能归到对应项目。
 - **指令与记忆**：查看每个项目里 `CLAUDE.md` / `AGENTS.md` 的 git 历史和每次改动的 diff，以及每个版本生效期间跑了多少个会话。
 - **中英文界面**、浅色 / 深色主题、键盘导航（列表里用 ↑/↓ 或 j/k）。
-- **可选的 AI 概要**：点一下生成标题、要点、决策记录，以及每个请求是否完成。只有你点击、并且设置了 `ANTHROPIC_API_KEY` 时才会调用。
+- **可选的 AI 概要**：点一下生成标题、要点、决策记录，以及每个请求是否完成。只有你点击时才会调用，可以接 Anthropic API，也可以接公司自己部署的模型。
 
 | 效率（深色） | 会话列表（深色） |
 |---|---|
@@ -96,7 +96,19 @@ Claude Code 不会把用量限额写进对话日志，但会把它传给状态�
 
 ### AI 概要（可选）
 
-启动 Loggy 前设置 `ANTHROPIC_API_KEY`，会话详情里就会出现「生成 AI 概要」按钮。只会发送你点击的那一个会话，而且只发一份精简的记录：你的请求、agent 的最终回复、工具名、文件路径和提交信息。结果缓存在 `~/.loggy/summaries`。默认模型是 `claude-haiku-4-5`，可以用 `--ai-model` 或环境变量 `LOGGY_AI_MODEL` 更换。
+在「设置 → AI 概要」里配置，会话详情里就会出现「生成 AI 概要」按钮。可以配置的项：
+
+- **接口格式**：Anthropic Messages（官方 API 或兼容的网关），或 OpenAI 兼容的 `/chat/completions`（大多数公司内部部署的模型和网关都支持）。
+- **接口地址**：Anthropic 格式留空就是官方 API；OpenAI 兼容格式填 `/chat/completions` 之前的部分，例如 `https://llm.example.com/v1`。
+- **模型**、**API Key**：Key 可以直接保存，也可以写一个环境变量名，让 Loggy 启动时从环境变量读取。不需要 Key 的内网网关可以留空。
+- **认证方式**（Anthropic 格式）：`x-api-key` 或 `Authorization: Bearer`。
+- **额外请求头**：每行一个 `Name: value`，用于网关要求的租户、项目等字段。
+
+「测试连接」会发一个很小的请求，检查地址、Key 和模型名。设置保存在 `~/.loggy/settings.json`，只有你自己能读。官方 API 用结构化输出，其他接口会要求模型返回 JSON，再做校验。
+
+没有在设置里配置时，Loggy 会沿用 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` 环境变量。默认模型是 `claude-haiku-4-5`，可以用 `--ai-model` 或 `LOGGY_AI_MODEL` 更换。
+
+只会发送你点击的那一个会话，而且只发一份精简的记录：你的请求、agent 的最终回复、工具名、文件路径和提交信息。结果缓存在 `~/.loggy/summaries`。
 
 ### 价格
 

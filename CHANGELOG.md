@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **AI summary settings** (Settings → AI summaries): Anthropic Messages or OpenAI-compatible format, address, model, API key (stored, or read from a named environment variable), bearer or x-api-key auth, extra headers, and a *Test connection* button. This lets you use a model your company deploys. Settings are saved in `~/.loggy/settings.json` with owner-only permissions, and the key is never sent back to the browser.
+
 ### Changed
 
 - **Flatter, tidier UI.** No rounded corners; sections are set apart by headings and spacing instead of boxes. Switches, status filters and navigation share one underlined style; selects size to their content; the two rarely used session filters moved into an *Options* menu; the calendar header is grouped into week navigation, color-by and zoom (with the zoom level shown).

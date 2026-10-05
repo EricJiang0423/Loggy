@@ -6,12 +6,13 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { completionOf } from '../core/acc.js';
 import type { SessionDetail, ServerState } from '../shared/types.js';
-import { aiAvailable, aiErrorMessage, readAiSummary, summarizeWithAi } from './ai.js';
+import { aiErrorMessage, readAiSummary, resolveAi, summarizeWithAi, testAi, type AiSettings } from './ai.js';
 import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
-import { GROUP_BY, writeSettings, type GroupBy } from './projects.js';
+import { GROUP_BY, type GroupBy } from './projects.js';
+import { readSettings, writeSettings } from './settings.js';
 import { readStatuslineMeters } from './statusline.js';
 
 const MIME: Record<string, string> = {
@@ -50,12 +51,35 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
     progress: indexer.progress,
     sources: indexer.sourceInfo,
     sessions: indexer.entries.size,
-    aiAvailable: aiAvailable(),
-    aiModel: cfg.aiModel,
+    ...aiState(),
     cacheFile: indexer.cacheFile,
     generation: indexer.gen,
     groupBy: indexer.groupBy,
   });
+
+  function currentAi() {
+    return resolveAi(readSettings(cfg.dataDir).ai, process.env, cfg.aiModel);
+  }
+
+  function aiState(): Pick<ServerState, 'aiAvailable' | 'aiModel' | 'ai'> {
+    const saved = readSettings(cfg.dataDir).ai ?? {};
+    const c = currentAi();
+    return {
+      aiAvailable: Boolean(c),
+      aiModel: c?.model ?? cfg.aiModel,
+      ai: {
+        enabled: saved.enabled !== false,
+        provider: saved.provider ?? 'anthropic',
+        baseURL: saved.baseURL ?? '',
+        model: saved.model ?? '',
+        auth: saved.auth ?? 'x-api-key',
+        apiKeyEnv: saved.apiKeyEnv ?? '',
+        headers: saved.headers ?? {},
+        hasKey: Boolean(saved.apiKey),
+        source: c?.source,
+      },
+    };
+  }
 
   async function detailOf(id: string): Promise<Omit<SessionDetail, 'ai'> | undefined> {
     const pages = indexer.pagesOf(id);
@@ -133,13 +157,14 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
       }
       case '/api/summarize': {
         if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
-        if (!aiAvailable()) return sendJson(req, res, { error: 'Set ANTHROPIC_API_KEY to enable AI summaries.' }, 400);
+        const aiCfg = currentAi();
+        if (!aiCfg) return sendJson(req, res, { error: 'AI summaries are not set up. Configure them in Settings.' }, 400);
         const id = url.searchParams.get('id') ?? '';
         const lang = url.searchParams.get('lang') ?? 'en';
         const d = await detailOf(id);
         if (!d) return sendJson(req, res, { error: 'not found' }, 404);
         try {
-          const ai = await summarizeWithAi(cfg.dataDir, cfg.aiModel, d, lang);
+          const ai = await summarizeWithAi(cfg.dataDir, aiCfg, d, lang);
           return sendJson(req, res, { ai });
         } catch (err) {
           return sendJson(req, res, { error: aiErrorMessage(err) }, 502);
@@ -151,6 +176,19 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         if (!GROUP_BY.includes(groupBy)) return sendJson(req, res, { error: 'unknown groupBy' }, 400);
         indexer.setGroupBy(groupBy);
         writeSettings(cfg.dataDir, { groupBy });
+        return sendJson(req, res, state());
+      }
+      case '/api/settings/ai':
+      case '/api/ai/test': {
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        const body = await readJson(req);
+        if (!body) return sendJson(req, res, { error: 'JSON body required' }, 400);
+        const next = mergeAi(readSettings(cfg.dataDir).ai, body);
+        if (p === '/api/ai/test') {
+          const c = resolveAi(next, process.env, cfg.aiModel);
+          return sendJson(req, res, c ? await testAi(c) : { ok: false, model: next.model ?? '', ms: 0, error: 'Not enough settings: give an address or a key.' });
+        }
+        writeSettings(cfg.dataDir, { ai: next });
         return sendJson(req, res, state());
       }
       case '/api/rescan': {
@@ -247,4 +285,48 @@ function serveStatic(webDir: string, pathname: string, req: http.IncomingMessage
   } else {
     res.writeHead(200, headers).end(hit.body);
   }
+}
+
+/** Applies a settings form: an omitted apiKey keeps the saved one, null or '' clears it. */
+export function mergeAi(saved: AiSettings | undefined, body: Record<string, unknown>): AiSettings {
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : undefined);
+  const headers: Record<string, string> = {};
+  if (body.headers && typeof body.headers === 'object') {
+    for (const [k, v] of Object.entries(body.headers as Record<string, unknown>)) {
+      if (/^[A-Za-z0-9-]+$/.test(k) && typeof v === 'string') headers[k] = v;
+    }
+  }
+  const next: AiSettings = {
+    enabled: body.enabled !== false,
+    provider: body.provider === 'openai' ? 'openai' : 'anthropic',
+    baseURL: str(body.baseURL) || undefined,
+    model: str(body.model) || undefined,
+    auth: body.auth === 'bearer' ? 'bearer' : 'x-api-key',
+    apiKeyEnv: str(body.apiKeyEnv) || undefined,
+    headers,
+    apiKey: body.apiKey === undefined ? saved?.apiKey : str(body.apiKey) || undefined,
+  };
+  if (next.baseURL && !/^https?:\/\//i.test(next.baseURL)) throw new Error('The address must start with http:// or https://');
+  return next;
+}
+
+/** Reads a small JSON body; only application/json, which browsers can't send cross-site without CORS. */
+function readJson(req: http.IncomingMessage): Promise<Record<string, unknown> | undefined> {
+  if (!(req.headers['content-type'] ?? '').startsWith('application/json')) return Promise.resolve(undefined);
+  return new Promise((resolve) => {
+    let raw = '';
+    req.on('data', (c) => {
+      raw += c;
+      if (raw.length > 64 * 1024) req.destroy();
+    });
+    req.on('end', () => {
+      try {
+        const v = JSON.parse(raw);
+        resolve(v && typeof v === 'object' && !Array.isArray(v) ? v : undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+    req.on('error', () => resolve(undefined));
+  });
 }

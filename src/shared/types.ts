@@ -225,6 +225,19 @@ export interface SourceInfo {
   bytes: number;
 }
 
+export interface AiSettingsView {
+  enabled: boolean;
+  provider: 'anthropic' | 'openai';
+  baseURL: string;
+  model: string;
+  auth: 'x-api-key' | 'bearer';
+  apiKeyEnv: string;
+  headers: Record<string, string>;
+  hasKey: boolean;
+  /** Where the endpoint in use comes from, if any. */
+  source?: 'settings' | 'env';
+}
+
 export interface ServerState {
   version: string;
   demo: boolean;
@@ -233,6 +246,8 @@ export interface ServerState {
   sessions: number;
   aiAvailable: boolean;
   aiModel: string;
+  /** Saved AI settings without the key itself. */
+  ai: AiSettingsView;
   cacheFile: string;
   generation: number;
   groupBy: 'smart' | 'repo' | 'git' | 'folder';

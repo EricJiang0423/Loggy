@@ -45,20 +45,6 @@ export function readRemote(root: string): string | undefined {
   }
 }
 
-/** Loggy's own settings in the data dir. */
-export function readSettings(dataDir: string): { groupBy?: GroupBy } {
-  try {
-    const s = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'));
-    return GROUP_BY.includes(s.groupBy) ? { groupBy: s.groupBy } : {};
-  } catch {
-    return {};
-  }
-}
-
-export function writeSettings(dataDir: string, settings: { groupBy: GroupBy }): void {
-  fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify(settings, null, 2));
-}
-
 interface Group {
   key: string;
   name: string;

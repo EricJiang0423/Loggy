@@ -1,5 +1,6 @@
 // Optional AI summary of a session (title, bullets, decisions, request status). Runs only
-// when the user clicks the button and an Anthropic API key is configured.
+// when the user clicks the button. Works with the Anthropic API, an Anthropic-format gateway
+// or any OpenAI-compatible endpoint (e.g. a model deployed inside a company).
 
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
@@ -9,6 +10,50 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { AiSummary, SessionDetail } from '../shared/types.js';
 import { ensureDir } from './config.js';
+
+/** What the user saved in Settings (settings.json). */
+export interface AiSettings {
+  enabled?: boolean;
+  /** API format: Anthropic Messages or OpenAI Chat Completions. */
+  provider?: 'anthropic' | 'openai';
+  baseURL?: string;
+  model?: string;
+  apiKey?: string;
+  /** Read the key from this environment variable instead of storing it. */
+  apiKeyEnv?: string;
+  /** Anthropic format only: send the key as x-api-key or as a bearer token. */
+  auth?: 'x-api-key' | 'bearer';
+  headers?: Record<string, string>;
+}
+
+/** The endpoint actually used. */
+export interface AiConfig {
+  provider: 'anthropic' | 'openai';
+  baseURL?: string;
+  model: string;
+  apiKey?: string;
+  auth: 'x-api-key' | 'bearer';
+  headers: Record<string, string>;
+  source: 'settings' | 'env';
+}
+
+/** Saved settings win; without them Loggy falls back to ANTHROPIC_* environment variables. */
+export function resolveAi(s: AiSettings | undefined, env: Record<string, string | undefined>, defaultModel: string): AiConfig | undefined {
+  if (s?.enabled === false) return undefined;
+  if (s && (s.provider || s.baseURL || s.model || s.apiKey || s.apiKeyEnv)) {
+    const provider = s.provider ?? 'anthropic';
+    const baseURL = s.baseURL?.trim().replace(/\/+$/, '') || undefined;
+    const official = provider === 'anthropic' && !baseURL;
+    const apiKey = s.apiKey || (s.apiKeyEnv ? env[s.apiKeyEnv] : undefined) || (official ? env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN : undefined) || undefined;
+    if (provider === 'openai' && !baseURL) return undefined;
+    if (!apiKey && !baseURL) return undefined;
+    const auth = s.auth ?? (official && !s.apiKey && !s.apiKeyEnv && !env.ANTHROPIC_API_KEY && env.ANTHROPIC_AUTH_TOKEN ? 'bearer' : 'x-api-key');
+    return { provider, baseURL, model: s.model?.trim() || defaultModel, apiKey, auth, headers: s.headers ?? {}, source: 'settings' };
+  }
+  const apiKey = env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN;
+  if (!apiKey) return undefined;
+  return { provider: 'anthropic', baseURL: env.ANTHROPIC_BASE_URL || undefined, model: defaultModel, apiKey, auth: env.ANTHROPIC_API_KEY ? 'x-api-key' : 'bearer', headers: {}, source: 'env' };
+}
 
 const SummarySchema = z.object({
   title: z.string(),
@@ -26,10 +71,6 @@ const SummarySchema = z.object({
 });
 
 const MAX_INPUT_CHARS = 120_000;
-
-export function aiAvailable(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-}
 
 function cacheDir(dataDir: string): string {
   return ensureDir(path.join(dataDir, 'summaries'));
@@ -83,27 +124,94 @@ Write in the requested language. Be concrete and short; do not invent facts that
 - type: one or two words for the kind of work (for example implementation, bug fix, refactor, research, review, docs).
 - workComplete: true when every request was finished and nothing is left for the user to follow up.`;
 
-export async function summarizeWithAi(dataDir: string, model: string, detail: Omit<SessionDetail, 'ai'>, lang: string): Promise<AiSummary> {
-  const client = new Anthropic();
-  const language = lang.startsWith('zh') ? 'Simplified Chinese' : 'English';
-  const response = await client.messages.parse({
-    model,
-    max_tokens: 4000,
-    system: SYSTEM,
-    messages: [{ role: 'user', content: `Language: ${language}\n\n<transcript>\n${transcriptFor(detail)}\n</transcript>` }],
-    output_config: { format: zodOutputFormat(SummarySchema) },
+const JSON_SHAPE = `Reply with only a JSON object, no prose and no code fences, with these keys:
+title (string), bullets (array of strings), decisions (array of strings),
+requests (array of {"text": string, "kind": "consult" | "request" | "follow_up" | "polish", "done": boolean}),
+type (string), workComplete (boolean).`;
+
+/** Reads the summary JSON from a model reply (tolerates code fences and stray text). */
+export function parseSummaryJson(text: string): z.infer<typeof SummarySchema> {
+  const body = text.replace(/```(?:json)?/gi, '');
+  const from = body.indexOf('{');
+  const to = body.lastIndexOf('}');
+  if (from === -1 || to <= from) throw new Error('The model did not return JSON.');
+  const result = SummarySchema.safeParse(JSON.parse(body.slice(from, to + 1)));
+  if (!result.success) throw new Error(`The model returned an incomplete summary (${result.error.issues.map((i) => i.path.join('.')).join(', ')}).`);
+  return result.data;
+}
+
+function anthropicClient(c: AiConfig): Anthropic {
+  return new Anthropic({
+    // Explicit values, so ANTHROPIC_* variables never redirect a configured endpoint.
+    baseURL: c.baseURL ?? 'https://api.anthropic.com',
+    apiKey: c.auth === 'x-api-key' ? (c.apiKey ?? null) : null,
+    authToken: c.auth === 'bearer' ? (c.apiKey ?? null) : null,
+    defaultHeaders: c.headers,
+    maxRetries: 1,
+    timeout: 180_000,
   });
-  const parsed = response.parsed_output;
-  if (!parsed) throw new Error(response.stop_reason === 'refusal' ? 'The model declined to summarize this session.' : 'The model returned no summary.');
-  const summary: AiSummary = { ...parsed, lang, model, createdAt: Date.now() };
+}
+
+/** One plain completion; returns the reply text. */
+async function complete(c: AiConfig, system: string, user: string, maxTokens: number): Promise<string> {
+  if (c.provider === 'openai') {
+    const res = await fetch(`${c.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}), ...c.headers },
+      body: JSON.stringify({ model: c.model, max_tokens: maxTokens, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const raw = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${c.baseURL}: ${raw.slice(0, 300)}`);
+    const content = JSON.parse(raw).choices?.[0]?.message?.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) return content.map((p: { text?: string }) => p.text ?? '').join('');
+    throw new Error('The endpoint returned no message content.');
+  }
+  const msg = await anthropicClient(c).messages.create({ model: c.model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] });
+  return msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+}
+
+export async function summarizeWithAi(dataDir: string, c: AiConfig, detail: Omit<SessionDetail, 'ai'>, lang: string): Promise<AiSummary> {
+  const language = lang.startsWith('zh') ? 'Simplified Chinese' : 'English';
+  const user = `Language: ${language}\n\n<transcript>\n${transcriptFor(detail)}\n</transcript>`;
+  let parsed: z.infer<typeof SummarySchema>;
+  if (c.provider === 'anthropic' && !c.baseURL) {
+    // The Anthropic API enforces the schema; gateways and other models get a JSON instruction.
+    const response = await anthropicClient(c).messages.parse({
+      model: c.model,
+      max_tokens: 4000,
+      system: SYSTEM,
+      messages: [{ role: 'user', content: user }],
+      output_config: { format: zodOutputFormat(SummarySchema) },
+    });
+    if (!response.parsed_output) throw new Error(response.stop_reason === 'refusal' ? 'The model declined to summarize this session.' : 'The model returned no summary.');
+    parsed = response.parsed_output;
+  } else {
+    parsed = parseSummaryJson(await complete(c, `${SYSTEM}\n\n${JSON_SHAPE}`, user, 8000));
+  }
+  const summary: AiSummary = { ...parsed, lang, model: c.model, createdAt: Date.now() };
   fs.writeFileSync(path.join(cacheDir(dataDir), `${keyOf(detail.summary.id)}.json`), JSON.stringify(summary));
   return summary;
 }
 
+/** Sends a tiny request to check address, key and model. */
+export async function testAi(c: AiConfig): Promise<{ ok: boolean; model: string; ms: number; reply?: string; error?: string }> {
+  const t0 = Date.now();
+  try {
+    const reply = await complete(c, 'Reply with the single word OK.', 'ping', 256);
+    return { ok: true, model: c.model, ms: Date.now() - t0, reply: reply.trim().slice(0, 60) };
+  } catch (err) {
+    return { ok: false, model: c.model, ms: Date.now() - t0, error: aiErrorMessage(err) };
+  }
+}
+
 export function aiErrorMessage(err: unknown): string {
-  if (err instanceof Anthropic.AuthenticationError) return 'Invalid Anthropic API key.';
-  if (err instanceof Anthropic.RateLimitError) return 'Rate limited by the Anthropic API. Try again shortly.';
+  if (err instanceof Anthropic.AuthenticationError) return 'The API key was rejected.';
+  if (err instanceof Anthropic.RateLimitError) return 'Rate limited. Try again shortly.';
+  if (err instanceof Anthropic.NotFoundError) return `Not found: ${err.message} (check the address and the model name).`;
   if (err instanceof Anthropic.BadRequestError) return `Request rejected: ${err.message}`;
-  if (err instanceof Anthropic.APIError) return `Anthropic API error ${err.status}: ${err.message}`;
+  if (err instanceof Anthropic.APIConnectionError) return `Cannot reach the endpoint: ${err.message}`;
+  if (err instanceof Anthropic.APIError) return `API error ${err.status}: ${err.message}`;
   return err instanceof Error ? err.message : String(err);
 }

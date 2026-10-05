@@ -14,6 +14,25 @@ async function post<T>(url: string): Promise<T> {
   return body as T;
 }
 
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const out = await res.json();
+  if (!res.ok) throw new Error(out?.error ?? `HTTP ${res.status}`);
+  return out as T;
+}
+
+/** The AI settings form; apiKey: undefined keeps the saved key, '' removes it. */
+export interface AiForm {
+  enabled: boolean;
+  provider: 'anthropic' | 'openai';
+  baseURL: string;
+  model: string;
+  auth: 'x-api-key' | 'bearer';
+  apiKeyEnv: string;
+  headers: Record<string, string>;
+  apiKey?: string;
+}
+
 export const api = {
   state: () => get<ServerState>('api/state'),
   sessions: (since: number) => get<{ gen: number; full: boolean; sessions: SessionSummary[]; removed: string[] }>(`api/sessions?since=${since}`),
@@ -27,5 +46,7 @@ export const api = {
     ),
   summarize: (id: string, lang: string) => post<{ ai: SessionDetail['ai'] }>(`api/summarize?id=${encodeURIComponent(id)}&lang=${lang}`),
   setGroupBy: (groupBy: ServerState['groupBy']) => post<ServerState>(`api/settings?groupBy=${groupBy}`),
+  saveAi: (body: AiForm) => postJson<ServerState>('api/settings/ai', body),
+  testAi: (body: AiForm) => postJson<{ ok: boolean; model: string; ms: number; reply?: string; error?: string }>('api/ai/test', body),
   rescan: (full: boolean) => post<{ ok: boolean }>(`api/rescan${full ? '?full=1' : ''}`),
 };

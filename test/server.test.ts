@@ -80,6 +80,21 @@ describe('http api', () => {
     expect(status).toBe(403);
   });
 
+  test('AI settings: JSON only, the key is never sent back, and the connection can be tested', async () => {
+    const post = (p: string, body: unknown, type = 'application/json') => fetch(`${app.url}${p}`, { method: 'POST', headers: { 'content-type': type }, body: JSON.stringify(body) });
+    expect((await post('/api/settings/ai', { model: 'x' }, 'text/plain')).status).toBe(400);
+    const saved = (await (await post('/api/settings/ai', { provider: 'openai', baseURL: 'http://127.0.0.1:9/v1', model: 'corp-model', apiKey: 'sk-very-secret', headers: { 'X-Team': 'q' } })).json()) as any;
+    expect(saved.ai).toMatchObject({ provider: 'openai', model: 'corp-model', hasKey: true, headers: { 'X-Team': 'q' } });
+    const stateText = await (await fetch(`${app.url}/api/state`)).text();
+    expect(stateText).not.toContain('sk-very-secret');
+    expect(JSON.parse(stateText).aiAvailable).toBe(true);
+    const tested = (await (await post('/api/ai/test', { provider: 'openai', baseURL: 'http://127.0.0.1:9/v1', model: 'corp-model' })).json()) as any;
+    expect(tested.ok).toBe(false);
+    // omitting the key keeps it; an empty key clears it
+    expect(((await (await post('/api/settings/ai', { provider: 'openai', baseURL: 'http://127.0.0.1:9/v1', model: 'm2' })).json()) as any).ai.hasKey).toBe(true);
+    expect(((await (await post('/api/settings/ai', { provider: 'openai', baseURL: 'http://127.0.0.1:9/v1', model: 'm2', apiKey: '' })).json()) as any).ai.hasKey).toBe(false);
+  });
+
   test('summaries need an API key', async () => {
     const res = await fetch(`${app.url}/api/summarize?id=x`, { method: 'POST' });
     expect([400, 404]).toContain(res.status);

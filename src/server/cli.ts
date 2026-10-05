@@ -26,7 +26,7 @@ Options
   -h, --help                 show this help
 
 Loggy only reads your logs. It listens on localhost and sends nothing anywhere, except
-AI summaries you request explicitly (needs ANTHROPIC_API_KEY).
+AI summaries you request explicitly (set up in Settings, or ANTHROPIC_API_KEY).
 `;
 
 function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boolean } {

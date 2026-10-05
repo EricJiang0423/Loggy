@@ -8,7 +8,7 @@ import { ensureDir, type Config } from './config.js';
 import { generateDemo, makeDemoRepos, tickDemo } from './demo.js';
 import { Indexer } from './indexer.js';
 import { Pool } from './pool.js';
-import { readSettings } from './projects.js';
+import { readSettings } from './settings.js';
 import { createServer } from './server.js';
 
 export interface Running {

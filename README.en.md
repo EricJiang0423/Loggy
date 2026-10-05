@@ -25,7 +25,7 @@ Loggy is a local dashboard for your **Claude Code** and **Codex** sessions. It r
 - **Projects.** Sessions are grouped by git remote, git root or working folder (Settings). The default, smart grouping, uses the remote when it is known (from git or from the Codex log) and also places sessions whose folder has since been deleted.
 - **Instructions & Memory.** The git history of `CLAUDE.md` / `AGENTS.md` in each project, with diffs and the number of sessions that ran under each version.
 - **Chinese and English UI**, light and dark themes, keyboard navigation (↑/↓ or j/k in the list).
-- **Optional AI summaries.** Click a button to get a title, bullets, decisions and a per-request status. These are generated only when you click and only if `ANTHROPIC_API_KEY` is set.
+- **Optional AI summaries.** Click a button to get a title, bullets, decisions and a per-request status. They are generated only when you click, with the Anthropic API or a model your company runs.
 
 | Efficiency | Session list (dark) |
 |---|---|
@@ -83,7 +83,19 @@ It prints a short line (`Opus 5.5 · 5h 23% · 7d 41%`) and records the numbers 
 
 ### AI summaries (optional)
 
-Start Loggy with `ANTHROPIC_API_KEY` set to enable the **Generate AI summary** button. Only the session you click is sent, as a compact transcript: your requests, the agent's final replies, tool names, file paths and commit messages. Results are cached in `~/.loggy/summaries`. The default model is `claude-haiku-4-5`; change it with `--ai-model` or `LOGGY_AI_MODEL`.
+Set them up in **Settings → AI summaries** to get the **Generate AI summary** button. You can set:
+
+- **API format**: Anthropic Messages (the Anthropic API or a compatible gateway), or OpenAI-compatible `/chat/completions`, which most self-hosted models and company gateways support.
+- **Address**: leave it empty for the Anthropic API. For the OpenAI format, give everything before `/chat/completions`, e.g. `https://llm.example.com/v1`.
+- **Model** and **API key**: store the key, or name an environment variable that Loggy reads at start. Gateways that need no key can leave it empty.
+- **Send key as** (Anthropic format): `x-api-key` or `Authorization: Bearer`.
+- **Extra headers**: one `Name: value` per line, for tenant or project headers a gateway may need.
+
+**Test connection** sends a tiny request to check the address, key and model. Settings are stored in `~/.loggy/settings.json`, readable only by you. The Anthropic API uses structured outputs; other endpoints are asked for JSON, which Loggy validates.
+
+Without saved settings Loggy uses the `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` environment variables. The default model is `claude-haiku-4-5`; change it with `--ai-model` or `LOGGY_AI_MODEL`.
+
+Only the session you click is sent, as a compact transcript: your requests, the agent's final replies, tool names, file paths and commit messages. Results are cached in `~/.loggy/summaries`.
 
 ### Prices
 
