@@ -11,6 +11,7 @@ import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
+import { GROUP_BY, writeSettings, type GroupBy } from './projects.js';
 import { readStatuslineMeters } from './statusline.js';
 
 const MIME: Record<string, string> = {
@@ -53,6 +54,7 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
     aiModel: cfg.aiModel,
     cacheFile: indexer.cacheFile,
     generation: indexer.gen,
+    groupBy: indexer.groupBy,
   });
 
   async function detailOf(id: string): Promise<Omit<SessionDetail, 'ai'> | undefined> {
@@ -61,11 +63,13 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
     if (!e) return undefined;
     const key = pages.map((p) => `${p.file}:${p.size}:${p.mtime}`).join('|');
     const hit = detailCache.get(id);
-    if (hit && hit.key === key) return hit.detail;
-    const detail = await pool.run<Omit<SessionDetail, 'ai'>>({ kind: 'detail', files: pages.map((p) => p.file), agent: e.agent }, true);
-    detail.summary = indexer.summaries().find((s) => s.id === id) ?? { ...detail.summary, projectPath: e.summary.projectPath, project: e.summary.project };
-    detailCache.set(id, { key, detail });
-    if (detailCache.size > 30) detailCache.delete(detailCache.keys().next().value!);
+    const detail = hit && hit.key === key ? hit.detail : await pool.run<Omit<SessionDetail, 'ai'>>({ kind: 'detail', files: pages.map((p) => p.file), agent: e.agent }, true);
+    if (detail !== hit?.detail) {
+      detailCache.set(id, { key, detail });
+      if (detailCache.size > 30) detailCache.delete(detailCache.keys().next().value!);
+    }
+    // Status, project and roll-ups change without the file changing, so the summary is always fresh.
+    detail.summary = indexer.summaries().find((s) => s.id === id) ?? detail.summary;
     return detail;
   }
 
@@ -141,6 +145,14 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
           return sendJson(req, res, { error: aiErrorMessage(err) }, 502);
         }
       }
+      case '/api/settings': {
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        const groupBy = url.searchParams.get('groupBy') as GroupBy;
+        if (!GROUP_BY.includes(groupBy)) return sendJson(req, res, { error: 'unknown groupBy' }, 400);
+        indexer.setGroupBy(groupBy);
+        writeSettings(cfg.dataDir, { groupBy });
+        return sendJson(req, res, state());
+      }
       case '/api/rescan': {
         if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
         if (url.searchParams.get('full') === '1') indexer.clearCache();
@@ -165,8 +177,7 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
 
   function isKnownProject(project: string): boolean {
     if (!project) return false;
-    for (const e of indexer.entries.values()) if (e.summary.projectPath === project) return true;
-    return false;
+    return indexer.summaries().some((s) => s.projectPath === project);
   }
 
   server.on('listening', () => {

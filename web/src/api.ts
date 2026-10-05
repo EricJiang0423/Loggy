@@ -26,5 +26,6 @@ export const api = {
       `api/instructions/version?project=${encodeURIComponent(project)}&file=${encodeURIComponent(file)}${sha ? `&sha=${sha}` : ''}${global ? '&global=1' : ''}`,
     ),
   summarize: (id: string, lang: string) => post<{ ai: SessionDetail['ai'] }>(`api/summarize?id=${encodeURIComponent(id)}&lang=${lang}`),
+  setGroupBy: (groupBy: ServerState['groupBy']) => post<ServerState>(`api/settings?groupBy=${groupBy}`),
   rescan: (full: boolean) => post<{ ok: boolean }>(`api/rescan${full ? '?full=1' : ''}`),
 };

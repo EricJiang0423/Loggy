@@ -44,6 +44,7 @@ export interface AccState {
   forkedFrom?: string;
   cwd: string;
   branch?: string;
+  repo?: string;
   version?: string;
   entrypoint?: string;
   customTitle?: string;
@@ -390,6 +391,9 @@ export function finalize(s: AccState): SessionSummary {
     lastTurn,
     pendingBackground: s.bgPending.length,
     uncommittedEdits,
+    lastEditTs: s.lastEditTs || undefined,
+    lastCommitTs: s.lastCommitTs || undefined,
+    repo: s.repo,
     component,
     hasPlan: s.hasPlan,
     badLines: s.badLines,

@@ -4,12 +4,13 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PARSER_VERSION, type AccState } from '../core/acc.js';
+import { PARSER_VERSION, computeOutcome, type AccState } from '../core/acc.js';
 import type { SummaryResult } from '../core/parse.js';
 import { liveStatus } from '../shared/status.js';
 import type { Agent, IndexProgress, SessionSummary, SourceInfo, UsageMeter } from '../shared/types.js';
 import { ensureDir } from './config.js';
 import type { Pool } from './pool.js';
+import { groupProjects, readRemote, type GroupBy, type Place } from './projects.js';
 
 const CACHE_VERSION = 2;
 const KEEP_STATE_MS = 3 * 86400_000;
@@ -55,6 +56,8 @@ export class Indexer extends EventEmitter {
   private timers: NodeJS.Timeout[] = [];
   private watchers: fs.FSWatcher[] = [];
   private gitRoots = new Map<string, string>();
+  private places = new Map<string, Place>();
+  groupBy: GroupBy = 'smart';
   private known: Discovered[] = [];
   readonly cacheFile: string;
 
@@ -253,9 +256,6 @@ export class Indexer extends EventEmitter {
     const r = await this.pool.run<SummaryResult>({ kind: 'summary', file, agent, resume });
     const summary = r.summary;
     summary.mtime = st.mtimeMs;
-    const projectPath = this.gitRoot(summary.cwd);
-    summary.projectPath = projectPath;
-    summary.project = projectPath ? path.basename(projectPath) : '(unknown)';
     const keepState = Date.now() - st.mtimeMs < KEEP_STATE_MS && !file.endsWith('.zst');
     const entry: Entry = {
       file,
@@ -397,7 +397,17 @@ export class Indexer extends EventEmitter {
   /** Summaries with live status and subagent roll-ups. */
   summaries(): SessionSummary[] {
     const now = Date.now();
-    const merged = [...this.pagesById().values()].map((pages) => (pages.length === 1 ? pages[0].summary : mergePages(pages.map((e) => e.summary))));
+    const merged = [...this.pagesById().values()].map((pages) => (pages.length === 1 ? { ...pages[0].summary } : mergePages(pages.map((e) => e.summary))));
+    groupProjects(merged, this.groupBy, (cwd) => this.place(cwd));
+    const byId = new Map(merged.map((s) => [s.id, s]));
+    for (const s of merged) {
+      // A subagent's edits count as committed once its parent commits after them.
+      const parent = s.isSubagent && s.uncommittedEdits && s.parentId ? byId.get(s.parentId) : undefined;
+      if (parent?.lastCommitTs && s.lastEditTs && parent.lastCommitTs >= s.lastEditTs) {
+        s.uncommittedEdits = false;
+        s.outcome = computeOutcome(s.turns, s.lastTurn, false, s.pendingBackground);
+      }
+    }
     const kids = new Map<string, { n: number; cost: number }>();
     for (const s of merged) {
       const p = s.parentId;
@@ -536,6 +546,26 @@ export class Indexer extends EventEmitter {
     return root;
   }
 
+  place(cwd: string): Place {
+    let p = this.places.get(cwd);
+    if (!p) {
+      const root = this.gitRoot(cwd);
+      const isGit = fs.existsSync(path.join(root, '.git'));
+      p = { root, isGit, remote: isGit ? readRemote(root) : undefined };
+      this.places.set(cwd, p);
+    }
+    return p;
+  }
+
+  /** Changes how sessions are grouped into projects; clients get a full list next time. */
+  setGroupBy(mode: GroupBy): void {
+    if (mode === this.groupBy) return;
+    this.groupBy = mode;
+    this.gen++;
+    this.removedFloor = this.gen;
+    this.emit('update');
+  }
+
   knownFiles(): number {
     return this.known.length;
   }
@@ -586,6 +616,9 @@ function mergePages(pages: SessionSummary[]): SessionSummary {
     waitMs: sum('waitMs'),
     badLines: sum('badLines'),
     hasPlan: pages.some((p) => p.hasPlan),
+    lastEditTs: Math.max(0, ...pages.map((p) => p.lastEditTs ?? 0)) || undefined,
+    lastCommitTs: Math.max(0, ...pages.map((p) => p.lastCommitTs ?? 0)) || undefined,
+    repo: pages.find((p) => p.repo)?.repo,
     buckets: [...buckets].sort((a, b) => a[0] - b[0]),
     inputTimes: pages.flatMap((p) => p.inputTimes).slice(-500),
   };

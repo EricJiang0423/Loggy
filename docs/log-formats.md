@@ -20,6 +20,7 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 | `custom-title`, `ai-title` | session names |
 | `queue-operation`, `attachment` (`queued_command`) | input queued while the agent was busy, including background-task notifications |
 | `continued-in` | `continuedInSessionId`: the conversation moved to another session |
+| `pr-link` | `prUrl`, `prRepository`: a pull request the session opened, which also names its repository |
 | `last-prompt`, `mode`, `permission-mode`, `file-history-*`, `bridge-session`, `pr-link`, other `attachment` types, … | metadata, mostly ignored |
 
 **Quirks**
@@ -56,7 +57,7 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 
 | type / payload.type | used for |
 |---|---|
-| `session_meta` | `id`, `cwd`, `cli_version`, `originator`, `git.branch`, `forked_from_id`. `source` is a string, or an object holding `parent_thread_id` for subagents. |
+| `session_meta` | `id`, `cwd`, `cli_version`, `originator`, `git.branch`, `git.repository_url`, `forked_from_id`. `source` is a string, or an object holding `parent_thread_id` for subagents. |
 | `turn_context`, `event_msg/thread_settings_applied` | model |
 | `event_msg/task_started` · `task_complete` · `turn_aborted` | turn boundaries (`turn_id`), `model_context_window`, `last_agent_message` |
 | `event_msg/item_completed` | `UserMessage`, `AgentMessage`, `FileChange` (`changes` with `unified_diff` or `content`), `CommandExecution` (`command`, `exit_code`, `status`, `aggregated_output`), `McpToolCall`, `ContextCompaction` |

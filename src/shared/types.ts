@@ -77,8 +77,12 @@ export interface SessionSummary {
   inputTimes: number[];
   lastTurn: LastTurnState;
   pendingBackground: number;
-  /** Files were edited after the last commit in this session. */
+  /** Files were edited after the last commit in this session (or by its parent, for subagents). */
   uncommittedEdits: boolean;
+  lastEditTs?: number;
+  lastCommitTs?: number;
+  /** Git remote recorded in the log (Codex). */
+  repo?: string;
   /** Most edited top-level directory relative to cwd. */
   component?: string;
   hasPlan: boolean;
@@ -231,6 +235,7 @@ export interface ServerState {
   aiModel: string;
   cacheFile: string;
   generation: number;
+  groupBy: 'smart' | 'repo' | 'git' | 'folder';
 }
 
 export interface InstructionFile {

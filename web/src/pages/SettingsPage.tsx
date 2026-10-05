@@ -13,6 +13,8 @@ const STATUSLINE = `{
   }
 }`;
 
+const GROUPS = ['smart', 'repo', 'git', 'folder'] as const;
+
 function size(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -60,6 +62,20 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
             { value: 'dark', label: t('set.theme.dark') },
           ]}
         />
+      </Card>
+      <Card title={t('set.groupBy')}>
+        <Seg
+          value={server?.groupBy ?? 'smart'}
+          onChange={async (g) => {
+            await api.setGroupBy(g);
+            await refreshServer();
+            await refreshSessions();
+          }}
+          options={GROUPS.map((g) => ({ value: g, label: t(`set.groupBy.${g}`) }))}
+        />
+        <p className="muted" style={{ fontSize: 12 }}>
+          {t(`set.groupBy.${server?.groupBy ?? 'smart'}Help`)}
+        </p>
       </Card>
       <Card title={t('set.sources')}>
         <table className="grid">

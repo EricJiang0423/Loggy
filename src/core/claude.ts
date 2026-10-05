@@ -174,6 +174,11 @@ export function claudeRecord(s: AccState, d: Json, sink?: DetailSink, responses?
     case 'summary':
       if (typeof d.summary === 'string' && !s.aiTitle) s.aiTitle = d.summary.trim();
       return;
+    case 'pr-link': {
+      const repo = typeof d.prUrl === 'string' ? /^(https?:\/\/[^/]+\/[^/]+\/[^/]+)\/pull\//.exec(d.prUrl)?.[1] : undefined;
+      if (repo) s.repo = repo;
+      return;
+    }
     case 'continued-in':
       // The conversation moved to another session; this one stops here without being cut off.
       markTurnEnded(s, ts, false);

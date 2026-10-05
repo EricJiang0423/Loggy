@@ -287,6 +287,7 @@ export function codexRecord(s: AccState, d: Json, sink?: DetailSink, responses?:
       if (typeof p.cli_version === 'string') s.version = p.cli_version;
       if (typeof p.originator === 'string') s.entrypoint = p.originator;
       if (p.git?.branch) s.branch = p.git.branch;
+      if (typeof p.git?.repository_url === 'string') s.repo = p.git.repository_url;
       if (typeof p.forked_from_id === 'string') s.forkedFrom = p.forked_from_id;
       const parent = findParent(p.source);
       if (parent) {

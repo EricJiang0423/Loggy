@@ -253,6 +253,11 @@ describe('claude: real-log regressions', () => {
     expect(summary.outcome).toBe('done');
   });
 
+  test('a PR link tells which repository the session worked on', () => {
+    const f = writeLines('pr-link.jsonl', [human('open a PR'), { type: 'pr-link', timestamp: ts(), sessionId: 's2', prNumber: 7, prRepository: 'owner/app', prUrl: 'https://github.com/owner/app/pull/7' }]);
+    expect(summarizeFile(f, 'claude').summary.repo).toBe('https://github.com/owner/app');
+  });
+
   test('a refusal ends the turn', () => {
     const f = writeLines('refusal.jsonl', [human('go'), reply('m1', [{ type: 'text', text: 'No.' }], 'refusal')]);
     expect(summarizeFile(f, 'claude').summary.lastTurn.ended).toBe(true);
@@ -360,6 +365,38 @@ describe('codex: real-log regressions', () => {
       ev('2026-10-01T17:01:02Z', { type: 'task_complete', turn_id: 't2' }),
     ]);
     expect(summarizeFile(f, 'codex').summary.ctxPeakPct).toBeCloseTo(75, 5);
+  });
+
+  test("a subagent's edits committed later by its parent are not left over", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loggy-kids-'));
+    const day = path.join(root, 'codex', 'sessions', '2026', '10', '02');
+    fs.mkdirSync(day, { recursive: true });
+    const parent = id(7);
+    const kid = '0199a0b0-0000-7000-8000-000000000188';
+    const w = (name: string, recs: unknown[]) => fs.writeFileSync(path.join(day, name), recs.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const commit = (t: string) => ev(t, { type: 'item_completed', item: { type: 'CommandExecution', command: 'git commit -m x', exit_code: 0, status: 'completed', aggregated_output: '[main abc1234] x' } });
+    w(`rollout-2026-10-02T09-00-00-${kid}.jsonl`, [
+      meta(kid, '2026-10-02T09:00:00Z', { source: { subagent: { thread_spawn: { parent_thread_id: parent } } } }),
+      ev('2026-10-02T09:00:00Z', { type: 'task_started', turn_id: 'k1' }),
+      userMsg('2026-10-02T09:00:00Z', 'edit'),
+      ev('2026-10-02T09:00:02Z', { type: 'item_completed', item: { type: 'FileChange', status: 'completed', changes: { '/w/p/a.ts': { type: 'add', content: 'x\n' } } } }),
+      ev('2026-10-02T09:00:03Z', { type: 'task_complete', turn_id: 'k1' }),
+    ]);
+    w(`rollout-2026-10-02T08-59-00-${parent}.jsonl`, [
+      meta(parent, '2026-10-02T08:59:00Z'),
+      ev('2026-10-02T08:59:00Z', { type: 'task_started', turn_id: 'p1' }),
+      userMsg('2026-10-02T08:59:00Z', 'delegate and commit'),
+      commit('2026-10-02T09:01:00Z'),
+      ev('2026-10-02T09:01:01Z', { type: 'task_complete', turn_id: 'p1' }),
+    ]);
+    const { Indexer } = await import('../src/server/indexer');
+    const { Pool } = await import('../src/server/pool');
+    const ix = new Indexer({ claudeDirs: [], codexDirs: [path.join(root, 'codex')] }, new Pool(undefined), path.join(root, 'data'));
+    await ix.scan();
+    const child = ix.summaries().find((s) => s.sessionId === kid)!;
+    expect(child.uncommittedEdits).toBe(false);
+    expect(child.outcome).toBe('done');
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('a thread continued in a new rollout file is one session', async () => {

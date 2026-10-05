@@ -8,6 +8,7 @@ import { ensureDir, type Config } from './config.js';
 import { generateDemo, makeDemoRepos, tickDemo } from './demo.js';
 import { Indexer } from './indexer.js';
 import { Pool } from './pool.js';
+import { readSettings } from './projects.js';
 import { createServer } from './server.js';
 
 export interface Running {
@@ -37,6 +38,7 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
   const prices = loadPrices(cfg.dataDir);
   if (prices) await pool.broadcast({ kind: 'prices', table: prices });
   const indexer = new Indexer({ claudeDirs: cfg.claudeDirs, codexDirs: cfg.codexDirs }, pool, cfg.dataDir);
+  indexer.groupBy = readSettings(cfg.dataDir).groupBy ?? 'smart';
   if (cfg.rebuild) indexer.clearCache();
   else indexer.loadCache();
 

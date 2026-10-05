@@ -17,6 +17,11 @@ interface Rule {
   price: Price;
 }
 
+/** OpenAI rates; without a separate cache-write price, writes cost the same as input. */
+function openai(input: number, cacheRead: number, output: number, cacheWrite = input): Price {
+  return { input, output, cacheRead, cacheWrite5m: cacheWrite, cacheWrite1h: cacheWrite };
+}
+
 const RULES: Rule[] = [
   // Claude (Anthropic first-party rates)
   { match: /fable-5-1|mythos-5-1/, price: { input: 10, output: 50, cacheRead: 0.25 } },
@@ -28,9 +33,31 @@ const RULES: Rule[] = [
   { match: /sonnet/, price: { input: 3, output: 15, cacheRead: 0.3 } },
   { match: /haiku-4/, price: { input: 1, output: 5, cacheRead: 0.1 } },
   { match: /haiku/, price: { input: 0.8, output: 4, cacheRead: 0.08 } },
-  // OpenAI / Codex (estimates; override in pricing.json for exact rates)
-  { match: /mini/, price: { input: 0.25, output: 2, cacheRead: 0.025, cacheWrite5m: 0.25, cacheWrite1h: 0.25 } },
-  { match: /gpt|codex|o\d/, price: { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite5m: 1.25, cacheWrite1h: 1.25 } },
+  // OpenAI list prices, short context (developers.openai.com/api/docs/pricing, 2026-10)
+  { match: /gpt-6-astra/, price: openai(10, 1, 50, 12.5) },
+  { match: /gpt-6\.1-sol/, price: openai(2, 0.1, 10, 2.5) },
+  { match: /gpt-6-sol/, price: openai(2, 0.2, 10, 2.5) },
+  { match: /gpt-6-luna/, price: openai(0.1, 0.01, 0.5, 0.125) },
+  { match: /gpt-5\.6-sol/, price: openai(4, 0.4, 20, 5) },
+  { match: /gpt-5\.6-terra/, price: openai(2, 0.2, 12, 2.5) },
+  { match: /gpt-5\.6-luna/, price: openai(0.2, 0.02, 1.2, 0.25) },
+  { match: /gpt-5\.5-pro/, price: openai(30, 30, 180) },
+  { match: /mini/, price: openai(0.25, 0.025, 2) }, // estimate
+  { match: /gpt-5\.5/, price: openai(5, 0.5, 30) },
+  { match: /gpt-5\.4/, price: openai(2.5, 0.25, 15) },
+  { match: /gpt-5\.3-codex/, price: openai(1.75, 0.175, 14) },
+  // Other models seen through Claude Code or Codex (official list prices, 2026-10)
+  { match: /glm-?5\.?3-?flashx/, price: { input: 0.37, output: 1.25, cacheRead: 0.075, cacheWrite5m: 0.37, cacheWrite1h: 0.37 } }, // docs.z.ai
+  { match: /glm-?5\.?3-?flash/, price: { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite5m: 0.15, cacheWrite1h: 0.15 } },
+  { match: /glm-?5\.?[23]/, price: { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite5m: 1.4, cacheWrite1h: 1.4 } },
+  { match: /deepseek.*pro/, price: { input: 1.32, output: 3.96, cacheRead: 0.044, cacheWrite5m: 1.32, cacheWrite1h: 1.32 } }, // peak rate; off-peak is half
+  { match: /deepseek/, price: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite5m: 0.3, cacheWrite1h: 0.3 } },
+  { match: /kimi[-/]?k3/, price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3, cacheWrite1h: 6 } }, // platform.kimi.ai
+  { match: /mimo.*pro-ultraspeed/, price: { input: 4.35, output: 8.7, cacheRead: 0.036, cacheWrite5m: 4.35, cacheWrite1h: 4.35 } }, // mimo.mi.com
+  { match: /mimo.*pro/, price: { input: 0.435, output: 0.87, cacheRead: 0.0036, cacheWrite5m: 0.435, cacheWrite1h: 0.435 } },
+  { match: /mimo.*flash/, price: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite5m: 0.14, cacheWrite1h: 0.14 } },
+  // Other OpenAI / Codex models without a published price (e.g. codex-auto-review): estimate
+  { match: /gpt|codex|o\d/, price: openai(1.25, 0.125, 10) },
 ];
 
 const FALLBACK: Price = { input: 3, output: 15, cacheRead: 0.3 };
