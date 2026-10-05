@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { UsageMeters } from './components/UsageMeters';
 import { I18nContext, detectLang, translate, useI18n, type Key, type Lang } from './i18n';
 import { EfficiencyPage } from './pages/EfficiencyPage';
 import { InstructionsPage } from './pages/InstructionsPage';
@@ -157,7 +156,6 @@ function TopBar({ page, navigate, query, setQuery, lang, setLang }: TopBarProps)
           t('index.ready', { n: count })
         )}
       </div>
-      <UsageMeters onSetup={() => navigate('settings')} />
       <div className="search">
         <input
           type="search"

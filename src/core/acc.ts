@@ -15,7 +15,7 @@ import type {
 } from '../shared/types.js';
 import { contextWindowFor, costOf, type UsageForCost } from './pricing.js';
 
-export const PARSER_VERSION = 4;
+export const PARSER_VERSION = 5;
 const BUCKET_MS = 600_000;
 const WAIT_CAP_MS = 30 * 60_000;
 const IDLE_SPLIT_MS = 30 * 60_000;
@@ -32,6 +32,7 @@ export interface TurnAcc {
   interrupted: boolean;
   ended: boolean;
   commits: number;
+  rewound?: boolean;
 }
 
 export interface AccState {
@@ -45,6 +46,8 @@ export interface AccState {
   cwd: string;
   branch?: string;
   repo?: string;
+  lineage?: string;
+  forkTs?: number;
   version?: string;
   entrypoint?: string;
   customTitle?: string;
@@ -394,6 +397,8 @@ export function finalize(s: AccState): SessionSummary {
     lastEditTs: s.lastEditTs || undefined,
     lastCommitTs: s.lastCommitTs || undefined,
     repo: s.repo,
+    lineage: s.lineage,
+    forkTs: s.forkTs,
     component,
     hasPlan: s.hasPlan,
     badLines: s.badLines,
@@ -444,6 +449,7 @@ export function buildTurnDetails(s: AccState, sink: DetailSink, responses: Map<n
     commits: sink.commitList.filter((c) => c.turn === i + 1).map((c) => c.sha),
     interrupted: t.interrupted,
     ended: t.ended,
+    ...(t.rewound ? { rewound: true } : {}),
   }));
 }
 

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { liveStatus } from '../../src/shared/status';
-import type { IndexProgress, SessionSummary, ServerState, UsageMeter } from '../../src/shared/types';
+import type { IndexProgress, SessionSummary, ServerState } from '../../src/shared/types';
 import { api } from './api';
 
 export interface StoreState {
@@ -9,13 +9,12 @@ export interface StoreState {
   gen: number;
   server?: ServerState;
   progress?: IndexProgress;
-  meters: UsageMeter[];
   online: boolean;
   loaded: boolean;
   now: number;
 }
 
-let state: StoreState = { sessions: new Map(), list: [], gen: 0, meters: [], online: true, loaded: false, now: Date.now() };
+let state: StoreState = { sessions: new Map(), list: [], gen: 0, online: true, loaded: false, now: Date.now() };
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<StoreState>): void {
@@ -68,15 +67,6 @@ export async function refreshSessions(): Promise<void> {
   }
 }
 
-export async function refreshUsage(): Promise<void> {
-  try {
-    const { meters } = await api.usage();
-    set({ meters });
-  } catch {
-    // keep the previous meters
-  }
-}
-
 export async function refreshServer(): Promise<void> {
   try {
     const server = await api.state();
@@ -93,8 +83,6 @@ export function startSync(): void {
   started = true;
   void refreshServer();
   void refreshSessions();
-  void refreshUsage();
-  let usageTimer: number | undefined;
   const es = new EventSource('api/events');
   es.addEventListener('hello', (e) => {
     const d = JSON.parse((e as MessageEvent).data);
@@ -103,12 +91,6 @@ export function startSync(): void {
   });
   es.addEventListener('update', () => {
     void refreshSessions();
-    if (usageTimer === undefined) {
-      usageTimer = window.setTimeout(() => {
-        usageTimer = undefined;
-        void refreshUsage();
-      }, 3000);
-    }
   });
   es.addEventListener('progress', (e) => {
     const progress = JSON.parse((e as MessageEvent).data) as IndexProgress;
@@ -122,5 +104,4 @@ export function startSync(): void {
     const now = Date.now();
     set({ now, list: withStatus([...state.sessions.values()], now) });
   }, 15_000);
-  window.setInterval(() => void refreshUsage(), 60_000);
 }

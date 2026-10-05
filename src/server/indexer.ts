@@ -7,7 +7,7 @@ import path from 'node:path';
 import { PARSER_VERSION, computeOutcome, type AccState } from '../core/acc.js';
 import type { SummaryResult } from '../core/parse.js';
 import { liveStatus } from '../shared/status.js';
-import type { Agent, IndexProgress, SessionSummary, SourceInfo, UsageMeter } from '../shared/types.js';
+import type { Agent, IndexProgress, SessionSummary, SourceInfo } from '../shared/types.js';
 import { ensureDir } from './config.js';
 import type { Pool } from './pool.js';
 import { groupProjects, readRemote, type GroupBy, type Place } from './projects.js';
@@ -25,9 +25,6 @@ export interface Entry {
   state?: AccState;
   summary: SessionSummary;
   search: string;
-  quota?: Record<string, unknown>;
-  rate?: Record<string, Record<string, unknown>>;
-  rateHist?: [number, number | null, number | null][];
   gen: number;
 }
 
@@ -253,7 +250,8 @@ export class Indexer extends EventEmitter {
     const prev = this.entries.get(file);
     if (prev && prev.size === st.size && prev.mtime === st.mtimeMs) return;
     const resume = prev?.state && st.size >= prev.size && prev.offset <= st.size ? { state: prev.state, offset: prev.offset } : undefined;
-    const r = await this.pool.run<SummaryResult>({ kind: 'summary', file, agent, resume });
+    const skipFrom = agent === 'claude' && !resume ? this.forkSources(file) : undefined;
+    const r = await this.pool.run<SummaryResult>({ kind: 'summary', file, agent, resume, skipFrom });
     const summary = r.summary;
     summary.mtime = st.mtimeMs;
     const keepState = Date.now() - st.mtimeMs < KEEP_STATE_MS && !file.endsWith('.zst');
@@ -266,9 +264,6 @@ export class Indexer extends EventEmitter {
       state: keepState ? r.state : undefined,
       summary,
       search: searchText(summary, r.state),
-      quota: r.quota,
-      rate: r.rate,
-      rateHist: r.rateHist,
       gen: ++this.gen,
     };
     this.entries.set(file, entry);
@@ -397,7 +392,13 @@ export class Indexer extends EventEmitter {
   /** Summaries with live status and subagent roll-ups. */
   summaries(): SessionSummary[] {
     const now = Date.now();
-    const merged = [...this.pagesById().values()].map((pages) => (pages.length === 1 ? { ...pages[0].summary } : mergePages(pages.map((e) => e.summary))));
+    const groups = this.groups();
+    const merged = [...groups.entries()].map(([key, pages]) =>
+      pages.length === 1 ? { ...pages[0].summary } : mergePages(pages.map((e) => e.summary), key.startsWith('lineage:')),
+    );
+    // Subagents of an earlier file of a forked conversation belong to the merged session.
+    const mergedId = this.mergedIds(groups);
+    for (const s of merged) if (s.parentId && mergedId.has(s.parentId)) s.parentId = mergedId.get(s.parentId);
     groupProjects(merged, this.groupBy, (cwd) => this.place(cwd));
     const byId = new Map(merged.map((s) => [s.id, s]));
     for (const s of merged) {
@@ -430,21 +431,25 @@ export class Indexer extends EventEmitter {
     const all = this.summaries();
     if (!since || since < this.removedFloor) return { gen: this.gen, full: true, sessions: all, removed: [] };
     const changedFiles = new Set<string>();
-    for (const e of this.entries.values()) if (e.gen > since) changedFiles.add(e.summary.id);
+    const mergedId = this.mergedIds(this.groups());
+    for (const e of this.entries.values()) if (e.gen > since) changedFiles.add(mergedId.get(e.summary.id) ?? e.summary.id);
     const removed = [...this.removed.entries()].filter(([, g]) => g > since).map(([id]) => id);
     return { gen: this.gen, full: false, sessions: all.filter((s) => changedFiles.has(s.id)), removed };
   }
 
   /**
-   * Entries grouped by session id, oldest page first. Newer Codex versions continue a thread
-   * in a new rollout file whose session_meta repeats the thread id, so one session can span files.
+   * Entries grouped into sessions, oldest page first. One session can span files: newer Codex
+   * versions continue a thread in a new rollout file with the same thread id, and a Claude
+   * rewind forks the conversation into a new file that starts with a copy of the old one.
    */
-  private pagesById(): Map<string, Entry[]> {
+  private groups(): Map<string, Entry[]> {
     const byId = new Map<string, Entry[]>();
     for (const e of this.entries.values()) {
-      const pages = byId.get(e.summary.id);
+      const s = e.summary;
+      const key = s.agent === 'claude' && !s.isSubagent && s.lineage ? `lineage:${s.lineage}` : s.id;
+      const pages = byId.get(key);
       if (!pages) {
-        byId.set(e.summary.id, [e]);
+        byId.set(key, [e]);
         continue;
       }
       // The same rollout under two roots (e.g. sessions and archived_sessions) is one page.
@@ -456,73 +461,88 @@ export class Indexer extends EventEmitter {
     return byId;
   }
 
-  /** Every page of a session, oldest first. */
+  /** Id of every page -> id of the session it belongs to (the newest page's). */
+  private mergedIds(groups: Map<string, Entry[]>): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const pages of groups.values()) {
+      if (pages.length < 2) continue;
+      const id = pages[pages.length - 1].summary.id;
+      for (const p of pages) out.set(p.summary.id, id);
+    }
+    return out;
+  }
+
+  /** Every page of a session, oldest first; any page's id finds the session. */
   pagesOf(id: string): Entry[] {
-    return this.pagesById().get(id) ?? [];
+    for (const pages of this.groups().values()) if (pages.some((p) => p.summary.id === id)) return pages;
+    return [];
   }
 
   search(q: string): string[] {
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
     if (!terms.length) return [];
-    const out: string[] = [];
+    const mergedId = this.mergedIds(this.groups());
+    const out = new Set<string>();
     for (const e of this.entries.values()) {
-      if (terms.every((t) => e.search.includes(t))) out.push(e.summary.id);
+      if (terms.every((t) => e.search.includes(t))) out.add(mergedId.get(e.summary.id) ?? e.summary.id);
     }
-    return out;
+    return [...out];
   }
 
-  usage(statusline: UsageMeter[]): UsageMeter[] {
-    const meters: UsageMeter[] = [];
-    // Codex: newest snapshot per limit id, history from every session.
-    const latest = new Map<string, Record<string, any>>();
-    const hist: [number, number][] = [];
-    const hist7: [number, number][] = [];
-    for (const e of this.entries.values()) {
-      for (const [id, snap] of Object.entries(e.rate ?? {})) {
-        const cur = latest.get(id);
-        if (!cur || (snap.ts as number) > cur.ts) latest.set(id, snap);
-      }
-      for (const [ts, p5, p7] of e.rateHist ?? []) {
-        if (p5 !== null) hist.push([ts, p5]);
-        if (p7 !== null) hist7.push([ts, p7]);
-      }
+  // ---------- rewinds ----------
+
+  private heads = new Map<string, string>();
+
+  /** uuid of the first record of a Claude transcript: forks of one conversation share it. */
+  private lineageHead(file: string): string | undefined {
+    const hit = this.heads.get(file);
+    if (hit) return hit;
+    let text = '';
+    try {
+      const fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(256 * 1024);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      fs.closeSync(fd);
+      text = buf.toString('utf8', 0, n);
+    } catch {
+      return undefined;
     }
-    const cutoff = Date.now() - 7 * 86400_000;
-    const h5 = hist.filter(([t]) => t > cutoff).sort((a, b) => a[0] - b[0]);
-    const h7 = hist7.filter(([t]) => t > cutoff).sort((a, b) => a[0] - b[0]);
-    const ordered = [...latest.entries()].sort((a, b) => (a[0] === 'codex' ? -1 : b[0] === 'codex' ? 1 : b[1].ts - a[1].ts));
-    for (const [id, snap] of ordered.slice(0, 2)) {
-      const win = (minutes: number) => {
-        for (const w of [snap.primary, snap.secondary]) {
-          if (w && Number(w.window_minutes) === minutes) {
-            return { usedPercent: Number(w.used_percent ?? 0), windowMinutes: minutes, resetsAt: w.resets_at ? Number(w.resets_at) * 1000 : undefined };
-          }
+    for (const line of text.split('\n')) {
+      if (!line.includes('"uuid"')) continue;
+      try {
+        const d = JSON.parse(line);
+        if (typeof d.uuid === 'string' && !d.isSidechain) {
+          this.heads.set(file, d.uuid);
+          return d.uuid;
         }
-        return undefined;
-      };
-      meters.push({ agent: 'codex', label: id, ts: snap.ts, fiveHour: win(300), sevenDay: win(10080), history: h5, history7: h7 });
+      } catch {
+        // partial line at the end of the read
+      }
     }
-    // Claude: statusline snapshots (exact percentages) and quota status from the logs.
-    const claudeMeters = statusline.slice();
-    let quota: Record<string, any> | undefined;
-    for (const e of this.entries.values()) {
-      if (e.quota && (!quota || (e.quota.ts as number) > quota.ts)) quota = e.quota;
-    }
-    if (claudeMeters.length) {
-      if (quota) claudeMeters[0].status = String(quota.status ?? '');
-      meters.unshift(...claudeMeters);
-    } else if (quota) {
-      meters.unshift({
-        agent: 'claude',
-        label: 'quota',
-        ts: quota.ts,
-        status: String(quota.status ?? ''),
-        history: [],
-        quotaResetsAt: quota.resetsAt ? Number(quota.resetsAt) * 1000 : undefined,
-        quotaType: quota.rateLimitType ? String(quota.rateLimitType) : undefined,
-      });
-    }
-    return meters;
+    return undefined;
+  }
+
+  /** Earlier files of the same conversation, oldest first: their records were copied into this one. */
+  private forkSources(file: string): string[] | undefined {
+    if (file.includes(`${path.sep}subagents${path.sep}`)) return undefined;
+    const head = this.lineageHead(file);
+    if (!head) return undefined;
+    const born = (f: string) => {
+      try {
+        const st = fs.statSync(f);
+        return [st.birthtimeMs || st.mtimeMs, st.mtimeMs];
+      } catch {
+        return [Infinity, Infinity];
+      }
+    };
+    const mine = born(file);
+    const earlier = this.known
+      .filter((d) => d.agent === 'claude' && d.file !== file && !d.file.includes(`${path.sep}subagents${path.sep}`) && path.dirname(d.file) === path.dirname(file))
+      .filter((d) => this.lineageHead(d.file) === head)
+      .map((d) => ({ f: d.file, b: born(d.file) }))
+      .filter((x) => x.b[0] < mine[0] || (x.b[0] === mine[0] && x.b[1] < mine[1]))
+      .sort((a, b) => a.b[0] - b.b[0] || a.b[1] - b.b[1]);
+    return earlier.length ? earlier.map((x) => x.f) : undefined;
   }
 
   // ---------- helpers ----------
@@ -572,7 +592,14 @@ export class Indexer extends EventEmitter {
 }
 
 /** One session from the summaries of its pages, oldest first. */
-function mergePages(pages: SessionSummary[]): SessionSummary {
+/** User inputs on the final path of a forked conversation (later files replace what came after their fork). */
+function keptInputs(pages: SessionSummary[]): number {
+  let kept = pages[0].inputTimes;
+  for (const p of pages.slice(1)) kept = [...kept.filter((t) => !p.forkTs || t <= p.forkTs), ...p.inputTimes];
+  return kept.length;
+}
+
+function mergePages(pages: SessionSummary[], forked = false): SessionSummary {
   const first = pages[0];
   const last = pages[pages.length - 1];
   const sum = (k: keyof SessionSummary) => pages.reduce((n, p) => n + (p[k] as number), 0);
@@ -621,6 +648,7 @@ function mergePages(pages: SessionSummary[]): SessionSummary {
     repo: pages.find((p) => p.repo)?.repo,
     buckets: [...buckets].sort((a, b) => a[0] - b[0]),
     inputTimes: pages.flatMap((p) => p.inputTimes).slice(-500),
+    ...(forked ? { rewinds: pages.length - 1, rewoundInputs: pages.reduce((n, p) => n + p.inputTimes.length, 0) - keptInputs(pages) } : {}),
   };
 }
 

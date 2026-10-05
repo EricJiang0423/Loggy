@@ -9,7 +9,6 @@ const HELP = `Loggy ${VERSION} - local dashboard for Claude Code and Codex sessi
 
 Usage
   loggy [options]            start the dashboard (default http://127.0.0.1:${DEFAULT_PORT})
-  loggy statusline           Claude Code status line command that records 5h/7d usage
 
 Options
   --port <n>                 port to listen on (default ${DEFAULT_PORT}; 0 picks a free port)
@@ -99,11 +98,6 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
-  if (argv[0] === 'statusline') {
-    const { runStatusline } = await import('./statusline.js');
-    await runStatusline(defaultDataDir());
-    return;
-  }
   let cfg;
   try {
     cfg = parseArgs(argv);

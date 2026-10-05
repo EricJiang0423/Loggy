@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Claude Code rewind support.** A rewind (or continuing in a new session) forks the conversation into a new file that starts with a copy of the old one. Loggy now shows the files as one session, counts the copied part once, and marks the turns the rewind took back.
+
+### Removed
+
+- Usage meters (Codex and Claude 5h / 7d), the `/api/usage` endpoint and the `loggy statusline` command.
+
 ## 0.5.2 - 2026-10-06
 
 ### Added

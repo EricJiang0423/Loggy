@@ -278,71 +278,6 @@ code,
   font-size: 10px;
 }
 
-/* ---------- usage meters ---------- */
-.meters {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.meter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0 2px 12px;
-  border-left: 1px solid var(--line);
-  font-size: 11px;
-  cursor: default;
-  position: relative;
-}
-
-.meter-name {
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.meter-bars {
-  display: grid;
-  grid-template-columns: auto 46px auto;
-  gap: 1px 4px;
-  align-items: center;
-}
-
-.meter-bar {
-  height: 5px;
-  border-radius: 0;
-  background: var(--surface-3);
-  overflow: hidden;
-}
-
-.meter-bar > div {
-  height: 100%;
-  border-radius: 0;
-}
-
-.meter .tip {
-  display: none;
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 40;
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: 0;
-  box-shadow: var(--shadow);
-  padding: 8px 10px;
-  width: 260px;
-  font-size: 12px;
-  white-space: normal;
-}
-
-.meter:hover .tip,
-.meter:focus-within .tip {
-  display: block;
-}
-
 /* ---------- generic ---------- */
 .btn.ghost {
   border-color: transparent;
@@ -1397,9 +1332,6 @@ pre.snippet {
   .navgroup-label,
   .indexing {
     display: none;
-  }
-  .meters {
-    flex-wrap: wrap;
   }
   .ins {
     grid-template-columns: 1fr;

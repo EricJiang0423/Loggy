@@ -1,17 +1,11 @@
 import { useState } from 'react';
 import type { Theme } from '../App';
 import { api, type AiForm } from '../api';
-import { Card, CopyButton, Seg } from '../components/common';
+import { Card, Seg } from '../components/common';
 import { duration, int } from '../format';
 import { useI18n, type Lang } from '../i18n';
 import { refreshServer, refreshSessions, useStore } from '../store';
 
-const STATUSLINE = `{
-  "statusLine": {
-    "type": "command",
-    "command": "loggy statusline"
-  }
-}`;
 
 const GROUPS = ['smart', 'repo', 'git', 'folder'] as const;
 
@@ -27,7 +21,6 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
   const progress = useStore((s) => s.progress);
   const count = useStore((s) => s.sessions.size);
   const [busy, setBusy] = useState(false);
-  const statusline = STATUSLINE;
 
   const rescan = async (full: boolean) => {
     setBusy(true);
@@ -117,11 +110,6 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
         <p className="muted" style={{ fontSize: 12 }}>
           {t('set.rebuildHint')}
         </p>
-      </Card>
-      <Card title={t('set.claudeUsage')}>
-        <p>{t('set.claudeUsageText')}</p>
-        <pre className="snippet">{statusline}</pre>
-        <CopyButton text={statusline} label={t('set.copy')} />
       </Card>
       <Card title={t('set.ai')}>{server && <AiSettings />}</Card>
       <Card title={t('set.pricing')}>

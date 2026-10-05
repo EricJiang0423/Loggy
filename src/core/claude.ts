@@ -55,7 +55,6 @@ interface ClaudeX {
   /** tool_use id -> commit message guess (bounded via toolOrder). */
   cmd: Record<string, string>;
   lastPromptId?: string;
-  quota?: Json;
   lastText?: string;
 }
 
@@ -144,6 +143,7 @@ export function claudeRecord(s: AccState, d: Json, sink?: DetailSink, responses?
   const x = s.x as unknown as ClaudeX;
   const type = d.type;
   const ts = parseTs(d.timestamp);
+  if (!s.lineage && typeof d.uuid === 'string' && !d.isSidechain) s.lineage = d.uuid;
   if (typeof d.cwd === 'string' && d.cwd && !s.cwd) s.cwd = d.cwd;
   if (typeof d.gitBranch === 'string' && d.gitBranch && d.gitBranch !== 'HEAD') s.branch = d.gitBranch;
   if (typeof d.version === 'string') s.version = d.version;
@@ -324,7 +324,6 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
     return;
   }
   if (model && model !== '<synthetic>') addModel(s, model);
-  if (d.quotaLimits && typeof d.quotaLimits === 'object') x.quota = { ...d.quotaLimits, ts };
   if (s.isSubagent && !s.turns.length) beginTurn(s, ts, '(subagent)');
 
   const u = msg.usage;
@@ -394,8 +393,4 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
   } else if (msg.stop_reason === 'tool_use') {
     s.pendingTool = true;
   }
-}
-
-export function claudeQuota(s: AccState): Json | undefined {
-  return (s.x as unknown as ClaudeX).quota;
 }

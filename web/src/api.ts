@@ -1,4 +1,4 @@
-import type { InstructionsInfo, SessionDetail, SessionSummary, ServerState, UsageMeter } from '../../src/shared/types';
+import type { InstructionsInfo, SessionDetail, SessionSummary, ServerState } from '../../src/shared/types';
 
 async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, { signal });
@@ -38,7 +38,6 @@ export const api = {
   sessions: (since: number) => get<{ gen: number; full: boolean; sessions: SessionSummary[]; removed: string[] }>(`api/sessions?since=${since}`),
   session: (id: string, signal?: AbortSignal) => get<SessionDetail>(`api/session?id=${encodeURIComponent(id)}`, signal),
   search: (q: string, signal?: AbortSignal) => get<{ ids: string[] }>(`api/search?q=${encodeURIComponent(q)}`, signal),
-  usage: () => get<{ meters: UsageMeter[] }>('api/usage'),
   instructions: (project: string) => get<InstructionsInfo & { globals: { path: string; exists: boolean }[] }>(`api/instructions?project=${encodeURIComponent(project)}`),
   instructionVersion: (project: string, file: string, sha?: string, global = false) =>
     get<{ content: string; diff: string }>(

@@ -28,15 +28,12 @@ import { indexIn, parseTs, sniffTimestamp, sniffTypes } from './lines.js';
 type Json = Record<string, any>;
 
 interface CodexX {
-  /** Sampled usage history: [ts, 5h %, 7d %] (null when the window is absent). */
-  rateHist?: [number, number | null, number | null][];
   /** Running maxima of the cumulative token counters (relative to this file's baseline). */
   tot: number[];
   /** Set once the first token_count of this file has fixed the baseline. */
   totSeen?: boolean;
   turnId?: string;
   lastText?: string;
-  rate?: Record<string, Json>;
   cmpTop: number;
   cmpItem: number;
   /** Recent inputs of the open turn as [text key, ts], to drop the same input reported twice. */
@@ -342,12 +339,6 @@ function eventMsg(s: AccState, x: CodexX, p: Json, ts: number, sink?: DetailSink
       return;
     case 'token_count':
       tokens(s, x, p.info?.total_token_usage, p.info?.last_token_usage, p.info?.model_context_window);
-      if (p.rate_limits && typeof p.rate_limits === 'object') {
-        const id = String(p.rate_limits.limit_id ?? 'codex');
-        x.rate = x.rate ?? {};
-        x.rate[id] = { ...p.rate_limits, ts };
-        recordRateHistory(x, p.rate_limits, ts);
-      }
       return;
     case 'thread_settings_applied':
       if (typeof p.thread_settings?.model === 'string') addModel(s, p.thread_settings.model);
@@ -445,37 +436,7 @@ function responseItem(s: AccState, p: Json, ts: number, sink?: DetailSink, _resp
   if (p.type === 'message' || p.type === 'agent_message') touch(s, ts);
 }
 
-function windowPercent(rl: Json, minutes: number): number | null {
-  for (const w of [rl.primary, rl.secondary]) {
-    if (w && typeof w === 'object' && Number(w.window_minutes) === minutes && typeof w.used_percent === 'number') return w.used_percent;
-  }
-  return null;
-}
-
-function recordRateHistory(x: CodexX, rl: Json, ts: number): void {
-  if (!ts) return;
-  const p5 = windowPercent(rl, 300);
-  const p7 = windowPercent(rl, 10080);
-  if (p5 === null && p7 === null) return;
-  const hist = (x.rateHist = x.rateHist ?? []);
-  const last = hist[hist.length - 1];
-  if (last && ts - last[0] < 5 * 60_000) {
-    hist[hist.length - 1] = [ts, p5, p7];
-    return;
-  }
-  hist.push([ts, p5, p7]);
-  if (hist.length > 300) hist.splice(0, hist.length - 300);
-}
-
-export function codexRateHistory(s: AccState): [number, number | null, number | null][] | undefined {
-  return (s.x as unknown as CodexX).rateHist;
-}
-
 export function codexFinalizeExtras(s: AccState): void {
   const x = s.x as unknown as CodexX;
   s.compactions = Math.max(x.cmpTop, x.cmpItem);
-}
-
-export function codexRateLimits(s: AccState): Record<string, Json> | undefined {
-  return (s.x as unknown as CodexX).rate;
 }

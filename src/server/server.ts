@@ -13,7 +13,6 @@ import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal
 import type { Pool } from './pool.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
 import { readSettings, writeSettings } from './settings.js';
-import { readStatuslineMeters } from './statusline.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -135,8 +134,6 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
       }
       case '/api/search':
         return sendJson(req, res, { ids: indexer.search(url.searchParams.get('q') ?? '') });
-      case '/api/usage':
-        return sendJson(req, res, { meters: indexer.usage(readStatuslineMeters(cfg.dataDir)) });
       case '/api/instructions': {
         const project = url.searchParams.get('project') ?? '';
         if (!isKnownProject(project)) return sendJson(req, res, { error: 'unknown project' }, 400);

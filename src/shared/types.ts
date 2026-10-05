@@ -83,6 +83,14 @@ export interface SessionSummary {
   lastCommitTs?: number;
   /** Git remote recorded in the log (Codex). */
   repo?: string;
+  /** Claude: uuid of the first record. A rewind or a continuation copies it into a new file. */
+  lineage?: string;
+  /** Claude: time of the record this file was forked from (set when the copies were skipped). */
+  forkTs?: number;
+  /** Number of rewinds (forks) merged into this session. */
+  rewinds?: number;
+  /** User inputs that a rewind took back. */
+  rewoundInputs?: number;
   /** Most edited top-level directory relative to cwd. */
   component?: string;
   hasPlan: boolean;
@@ -133,6 +141,8 @@ export interface TurnDetail {
   commits: string[];
   interrupted: boolean;
   ended: boolean;
+  /** Taken back by a rewind. */
+  rewound?: boolean;
 }
 
 export type TimelineKind = 'user' | 'assistant' | 'tool' | 'result' | 'system' | 'question';
@@ -146,6 +156,8 @@ export interface TimelineItem {
   turn: number;
   /** Number of characters dropped by truncation. */
   cut?: number;
+  /** Taken back by a rewind. */
+  rewound?: boolean;
 }
 
 export interface CompletionCheck {
@@ -180,30 +192,6 @@ export interface SessionDetail {
   timelineTotal: number;
   completion: CompletionCheck;
   ai?: AiSummary;
-}
-
-export interface RateWindow {
-  usedPercent: number;
-  windowMinutes: number;
-  resetsAt?: number;
-}
-
-export interface UsageMeter {
-  agent: Agent;
-  /** e.g. Codex limit id, or "statusline". */
-  label: string;
-  ts: number;
-  fiveHour?: RateWindow;
-  sevenDay?: RateWindow;
-  /** Non-percentage state, e.g. Claude quota status. */
-  status?: string;
-  /** 5h usage history for sparkline: [ts, percent]. */
-  history: [number, number][];
-  /** 7d usage history: [ts, percent]. */
-  history7?: [number, number][];
-  /** Reset time and window type reported with a Claude quota status. */
-  quotaResetsAt?: number;
-  quotaType?: string;
 }
 
 export interface IndexProgress {
