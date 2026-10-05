@@ -1,6 +1,6 @@
 {
   "name": "loggy",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Local dashboard for Claude Code and Codex session history: calendar, session detail, efficiency analytics.",
   "license": "MIT",
   "type": "module",

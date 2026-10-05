@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.5.1 - 2026-10-05
+
+Fixes found by running Loggy on a full set of real Claude Code and Codex logs.
+
+### Added
+
+- **Project grouping options** in Settings: smart (default), repository, git root or folder.
+  - Smart grouping uses the git remote when it is known, from the repository on disk, the Codex log or a Claude PR link, so clones and worktrees of one repository are one project.
+  - Sessions whose folder was deleted join the project of the same folder or a parent folder, and subagents follow their parent.
+  - Projects that share a name show their owner or parent folder.
+- **Prices** for GLM, DeepSeek, Kimi, MiMo and current OpenAI models, from their official price lists. Before, these models were priced as Claude Sonnet or as a generic GPT estimate.
+
+### Fixed
+
+- **Codex token counts and costs:**
+  - Subagents, forks and continued threads no longer count the totals they inherit from the parent thread. On the test machine these had inflated Codex tokens by about 40%.
+  - A token counter that restarts after a resume is no longer undercounted.
+  - `token_usage_record` is no longer mixed with `token_count`.
+- **Codex threads continued in a new rollout file** show up as one session with all their turns. Before, only the newest file was shown.
+- **Codex times:** turn start comes from the record time. `task_started.started_at` can be hours off and pushed sessions into the future.
+- **Codex inputs:** the same message sent twice in a long turn counts as two inputs.
+- **Codex peak context** is measured against the window of the model that made each request, not the last model's window.
+- **Claude background tasks** finished while the agent was busy are recognized. Before, most sessions with background work were marked *leftover*.
+- **Claude live status:**
+  - a request that ends in an API error (rate limit, overload, login) ends the turn instead of showing *running* / *stalled*
+  - work that resumes after the turn ended (for example on a task notification) shows as *running* again
+  - a `refusal` ends the turn
+- **Claude outcomes:** subagents whose last reply has no `stop_reason`, and sessions continued in another session, are no longer *stopped midway*.
+- **Subagent outcomes:** a subagent's edits that its parent session committed afterwards no longer mark the subagent *leftover*.
+- **Session detail** always shows the current live status and project, even when the detail itself comes from the cache.
+- **Claude tokens:** a `message.id` that reappears much later is no longer counted twice.
+- **Context %:** Opus 5, Sonnet 5 and Fable sessions are measured against 1M tokens even when they stayed below 200K.
+- **Efficiency page:** changes are compared with the previous period only when the logs cover all of it, and empty sessions no longer stretch *All time* back to 1970.
+- **Calendar legend:** projects without their own color share one *Other* entry, so the legend no longer pushes the calendar down.
+
 ## 0.5.0 - 2026-10-03
 
 First public release.

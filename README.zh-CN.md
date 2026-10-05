@@ -31,6 +31,7 @@ Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取�
   - Claude Code 与 Codex 的对比，按项目的统计表
   - 「值得一看」列表：花了钱却没产出、上下文接近上限、工具调用陷入循环、结束时还有未提交改动的会话
 - **用量限额**：Codex 的 5 小时 / 7 天用量直接来自它自己的日志；Claude 的用量可以通过可选的状态栏命令获取（见下文）。
+- **项目分组**：可以在设置里选择按 git 远程仓库、git 根目录或工作目录分组。默认的智能分组在能识别仓库时（来自 git 或 Codex 日志）按仓库分组，目录已被删除的会话也能归到对应项目。
 - **指令与记忆**：查看每个项目里 `CLAUDE.md` / `AGENTS.md` 的 git 历史和每次改动的 diff，以及每个版本生效期间跑了多少个会话。
 - **中英文界面**、浅色 / 深色主题、键盘导航（列表里用 ↑/↓ 或 j/k）。
 - **可选的 AI 概要**：点一下生成标题、要点、决策记录，以及每个请求是否完成。只有你点击、并且设置了 `ANTHROPIC_API_KEY` 时才会调用。
@@ -45,10 +46,10 @@ Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取�
 
 ```sh
 # 不安装，直接运行一次
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.5.0/loggy-0.5.0.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.5.1/loggy-0.5.1.tgz
 
 # 或者安装 loggy 命令
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.5.0/loggy-0.5.0.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.5.1/loggy-0.5.1.tgz
 loggy
 ```
 
@@ -91,7 +92,7 @@ Claude Code 不会把用量限额写进对话日志，但会把它传给状态�
 
 ### 价格
 
-费用是按内置价格表估算的**等价 API 费用**，订阅用户实际不按 token 计费。要覆盖价格，可以创建 `~/.loggy/pricing.json`，例如 `{ "gpt-5.5-codex": { "input": 1.25, "output": 10, "cacheRead": 0.125 } }`，单位是美元 / 百万 token。键名会和模型名精确匹配或做子串匹配。
+费用是按内置价格表估算的**等价 API 费用**，订阅用户实际不按 token 计费。价格表收录了 Claude、OpenAI、GLM、DeepSeek、Kimi 和 MiMo 模型的官方标价（按短上下文价格；DeepSeek 按高峰价）。没有公开价格的 OpenAI 模型（如 `codex-auto-review`）按估算价计算，表里没有的模型按 Sonnet 价格计算。要覆盖价格，可以创建 `~/.loggy/pricing.json`，例如 `{ "gpt-5.5-codex": { "input": 1.25, "output": 10, "cacheRead": 0.125 } }`，单位是美元 / 百万 token。键名会和模型名精确匹配或做子串匹配。
 
 ## 工作原理
 

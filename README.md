@@ -22,6 +22,7 @@ Loggy is a local dashboard for your **Claude Code** and **Codex** sessions. It r
   - a Claude Code vs Codex comparison and a per-project table
   - a "worth a look" list of sessions that burned money without output, ran close to the context limit, looped on tools, or ended with uncommitted edits
 - **Usage limits.** Codex 5-hour / 7-day usage comes from its own logs. Claude's usage is available through an optional status-line command (see below).
+- **Projects.** Sessions are grouped by git remote, git root or working folder (Settings). The default, smart grouping, uses the remote when it is known (from git or from the Codex log) and also places sessions whose folder has since been deleted.
 - **Instructions & Memory.** The git history of `CLAUDE.md` / `AGENTS.md` in each project, with diffs and the number of sessions that ran under each version.
 - **Chinese and English UI**, light and dark themes, keyboard navigation (↑/↓ or j/k in the list).
 - **Optional AI summaries.** Click a button to get a title, bullets, decisions and a per-request status. These are generated only when you click and only if `ANTHROPIC_API_KEY` is set.
@@ -36,10 +37,10 @@ Requires **Node.js 22.12+** (22.15+ to read compressed `.jsonl.zst` Codex logs).
 
 ```sh
 # run once without installing
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.5.0/loggy-0.5.0.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.5.1/loggy-0.5.1.tgz
 
 # or install the `loggy` command
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.5.0/loggy-0.5.0.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.5.1/loggy-0.5.1.tgz
 loggy
 ```
 
@@ -78,7 +79,7 @@ Start Loggy with `ANTHROPIC_API_KEY` set to enable the **Generate AI summary** b
 
 ### Prices
 
-Costs are **API-equivalent estimates** from a built-in price table. Subscription plans are not billed per token. To override prices, create `~/.loggy/pricing.json`, for example `{ "gpt-5.5-codex": { "input": 1.25, "output": 10, "cacheRead": 0.125 } }`, in USD per million tokens. Keys match model names exactly or by substring.
+Costs are **API-equivalent estimates** from a built-in price table. Subscription plans are not billed per token. The table uses list prices for Claude, OpenAI, GLM, DeepSeek, Kimi and MiMo models (short-context rates; DeepSeek at its peak rate). OpenAI models without a published price, such as `codex-auto-review`, use an estimate, and models it doesn't know use Sonnet rates. To override prices, create `~/.loggy/pricing.json`, for example `{ "gpt-5.5-codex": { "input": 1.25, "output": 10, "cacheRead": 0.125 } }`, in USD per million tokens. Keys match model names exactly or by substring.
 
 ## How it works
 
