@@ -77,6 +77,20 @@ export function slotMap(all: SessionSummary[], dim: ColorDim): Map<string, numbe
   return new Map(top.map((k, i) => [k, i]));
 }
 
+export const OTHER_KEY = '\u0000other';
+
+/** Legend rows: values without a color slot share one "Other" row (last), the rest by count. */
+export function legendEntries(sessions: SessionSummary[], dim: ColorDim, slots: Map<string, number>): [string, number][] {
+  const fold = dim !== 'outcome' && dim !== 'agent';
+  const counts = new Map<string, number>();
+  for (const s of sessions) {
+    let v = dimValue(s, dim);
+    if (fold && v && !slots.has(v)) v = OTHER_KEY;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => (a[0] === OTHER_KEY ? 1 : b[0] === OTHER_KEY ? -1 : b[1] - a[1]));
+}
+
 export function colorFor(s: SessionSummary, dim: ColorDim, slots: Map<string, number>): string {
   if (dim === 'outcome') return outcomeColor(dimValue(s, dim) as Outcome);
   if (dim === 'agent') return agentColor(s.agent);

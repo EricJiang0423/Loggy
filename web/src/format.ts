@@ -8,6 +8,18 @@ function fmt(lang: Lang, opts: Intl.NumberFormatOptions): Intl.NumberFormat {
   return f;
 }
 
+/** Earliest session start; empty sessions have no start (0) and are skipped. */
+export function earliestStart(sessions: { start: number }[], fallback: number): number {
+  let min = Infinity;
+  for (const s of sessions) if (s.start && s.start < min) min = s.start;
+  return min === Infinity ? fallback : min;
+}
+
+/** A previous period is comparable only when the logs reach back to its start. */
+export function comparablePeriod(earliest: number, prevFrom: number): boolean {
+  return earliest <= prevFrom;
+}
+
 export function money(v: number, lang: Lang): string {
   if (!Number.isFinite(v)) return '–';
   if (v === 0) return '$0';

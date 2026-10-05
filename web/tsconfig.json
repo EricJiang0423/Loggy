@@ -12,5 +12,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["src", "../src/shared"]
+  "include": ["src", "../src/shared", "../test/web.test.ts"]
 }

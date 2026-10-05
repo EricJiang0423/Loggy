@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
-import { colorFor, dimValue, outcomeColor, series, slotMap, type ColorDim } from '../colors';
+import { OTHER_KEY, colorFor, dimValue, legendEntries, outcomeColor, series, slotMap, type ColorDim } from '../colors';
 import { addDays, dateTime, day, duration, money, shortDay, startOfWeek, time } from '../format';
 import { useI18n, type Key } from '../i18n';
 import { useStore } from '../store';
@@ -332,22 +332,15 @@ export function Calendar({
     return undefined;
   };
 
-  const legend = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const s of weekSessions) {
-      const v = dimValue(s, colorBy);
-      counts.set(v, (counts.get(v) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [weekSessions, colorBy]);
+  const legend = useMemo(() => legendEntries(weekSessions, colorBy, slots), [weekSessions, colorBy, slots]);
 
   const legendLabel = (v: string) => {
     if (!v) return t('cal.none');
+    if (v === OTHER_KEY) return t('cal.other');
     if (colorBy === 'outcome') {
       return ['running', 'stalled', 'needs_input'].includes(v) ? t(`status.${v}` as Key) : t(`outcome.${v}` as Key);
     }
     if (colorBy === 'agent') return t(v === 'claude' ? 'agent.claude' : 'agent.codex');
-    if (!slots.has(v)) return `${v} (${t('cal.other')})`;
     return v;
   };
   const legendColor = (v: string) => {

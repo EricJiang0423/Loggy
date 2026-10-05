@@ -3,7 +3,7 @@ import type { SessionSummary } from '../../../src/shared/types';
 import { agentColor, series as seriesColor } from '../colors';
 import { BarChart, DataTable, Heatmap, Legend, type Series } from '../components/Charts';
 import { Seg, StatusBadge, useThemeVersion } from '../components/common';
-import { addDays, compact, duration, hours, int, money, pct, shortDay, startOfDay, weekday } from '../format';
+import { addDays, comparablePeriod, compact, earliestStart, duration, hours, int, money, pct, shortDay, startOfDay, weekday } from '../format';
 import { useI18n, type Key } from '../i18n';
 import { useStore } from '../store';
 
@@ -64,7 +64,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const projects = useMemo(() => [...new Map(list.map((s) => [s.projectPath, s.project])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [list]);
   const scoped = useMemo(() => list.filter((s) => (agent === 'all' || s.agent === agent) && (!project || s.projectPath === project)), [list, agent, project]);
 
-  const earliest = useMemo(() => (scoped.length ? Math.min(...scoped.map((s) => s.start)) : now), [scoped, now]);
+  const earliest = useMemo(() => earliestStart(scoped, now), [scoped, now]);
   const days = range === 'all' ? Math.max(7, Math.ceil((now - startOfDay(earliest)) / DAY) + 1) : Number(range);
   const to = startOfDay(now) + DAY;
   const from = addDays(to, -days);
@@ -72,7 +72,8 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
 
   const cur = useMemo(() => aggregate(scoped, from, to), [scoped, from, to]);
   const prev = useMemo(() => (range === 'all' ? undefined : aggregate(scoped, prevFrom, from)), [scoped, prevFrom, from, range]);
-  const hasPrev = prev && scoped.some((s) => s.start >= prevFrom && s.start < from);
+  // Claude Code deletes old transcripts, so a partly covered previous period would inflate changes.
+  const hasPrev = prev && comparablePeriod(earliest, prevFrom) && scoped.some((s) => s.start >= prevFrom && s.start < from);
 
   const daily = useMemo(() => {
     const idx = (ts: number) => Math.floor((startOfDay(ts) - from) / DAY);
