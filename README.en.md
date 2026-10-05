@@ -45,10 +45,10 @@ Requires **Node.js 22.12+** (22.15+ to read compressed `.jsonl.zst` Codex logs).
 
 ```sh
 # run once without installing
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.5.1/loggy-0.5.1.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.5.2/loggy-0.5.2.tgz
 
 # or install the `loggy` command
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.5.1/loggy-0.5.1.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.5.2/loggy-0.5.2.tgz
 loggy
 ```
 

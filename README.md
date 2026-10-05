@@ -54,10 +54,10 @@ Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取�
 
 ```sh
 # 不安装，直接运行一次
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.5.1/loggy-0.5.1.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.5.2/loggy-0.5.2.tgz
 
 # 或者安装 loggy 命令
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.5.1/loggy-0.5.1.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.5.2/loggy-0.5.2.tgz
 loggy
 ```
 
