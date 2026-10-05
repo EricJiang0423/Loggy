@@ -58,7 +58,7 @@ export function Timeline({ detail, onHide }: { detail?: SessionDetail; onHide: (
           />
           {t('tl.showTools')}
         </label>
-        <button className="btn icon" onClick={onHide} aria-label={t('detail.hideTimeline')} title={t('detail.hideTimeline')}>
+        <button className="btn icon ghost" onClick={onHide} aria-label={t('detail.hideTimeline')} title={t('detail.hideTimeline')}>
           ×
         </button>
       </div>

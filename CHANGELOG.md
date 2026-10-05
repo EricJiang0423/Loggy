@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Flatter, tidier UI.** No rounded corners; sections are set apart by headings and spacing instead of boxes. Switches, status filters and navigation share one underlined style; selects size to their content; the two rarely used session filters moved into an *Options* menu; the calendar header is grouped into week navigation, color-by and zoom (with the zoom level shown).
+- The default README is now Chinese (`README.md`); the English one is `README.en.md`.
+
 ## 0.5.1 - 2026-10-05
 
 Fixes found by running Loggy on a full set of real Claude Code and Codex logs.

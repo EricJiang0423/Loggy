@@ -356,36 +356,42 @@ export function Calendar({
   return (
     <div className="cal">
       <div className="cal-head">
-        <button className="btn" onClick={() => setWeekStart(startOfWeek(Date.now()))}>
-          {t('cal.thisWeek')}
-        </button>
-        <button className="btn icon" onClick={() => setWeekStart(addDays(weekStart, -7))} aria-label={t('cal.prev')} title={t('cal.prev')}>
-          ◀
-        </button>
-        <button className="btn icon" onClick={() => setWeekStart(addDays(weekStart, 7))} aria-label={t('cal.next')} title={t('cal.next')}>
-          ▶
+        <button className="btn icon ghost" onClick={() => setWeekStart(addDays(weekStart, -7))} aria-label={t('cal.prev')} title={t('cal.prev')}>
+          ‹
         </button>
         <b className="num">
           {shortDay(weekStart, lang)} – {shortDay(addDays(weekStart, 6), lang)}
         </b>
+        <button className="btn icon ghost" onClick={() => setWeekStart(addDays(weekStart, 7))} aria-label={t('cal.next')} title={t('cal.next')}>
+          ›
+        </button>
+        <button className="btn" onClick={() => setWeekStart(startOfWeek(Date.now()))} disabled={weekStart === startOfWeek(now)}>
+          {t('cal.thisWeek')}
+        </button>
         <span className="muted">{t('cal.sessionsInWeek', { n: weekSessions.length })}</span>
-        <span className="spacer" style={{ flex: 1 }} />
-        <button className="btn icon" onClick={() => setHourPx((h) => Math.max(14, h / 1.25))} aria-label={t('cal.zoomOut')} title={t('cal.zoomOut')}>
-          −
-        </button>
-        <button className="btn icon" onClick={() => setHourPx((h) => Math.min(180, h * 1.25))} aria-label={t('cal.zoomIn')} title={t('cal.zoomIn')}>
-          +
-        </button>
-        <button className="btn" onClick={() => setHourPx(36)}>
-          {t('cal.zoomReset')}
-        </button>
-        <select className="sel" value={colorBy} onChange={(e) => setColorBy(e.target.value as ColorDim)} aria-label={t('cal.colorBy')} title={t('cal.colorBy')}>
-          {DIMS.map((d) => (
-            <option key={d} value={d}>
-              {t('cal.colorBy')}: {t(`cal.color.${d}` as Key)}
-            </option>
-          ))}
-        </select>
+        <span className="spacer" />
+        <label className="field">
+          {t('cal.colorBy')}
+          <select className="sel" value={colorBy} onChange={(e) => setColorBy(e.target.value as ColorDim)}>
+            {DIMS.map((d) => (
+              <option key={d} value={d}>
+                {t(`cal.color.${d}` as Key)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="sep" />
+        <div className="zoom" role="group" aria-label={t('cal.zoomReset')}>
+          <button className="btn icon" onClick={() => setHourPx((h) => Math.max(14, h / 1.25))} aria-label={t('cal.zoomOut')} title={t('cal.zoomOut')}>
+            −
+          </button>
+          <button className="btn num" onClick={() => setHourPx(36)} title={t('cal.zoomReset')}>
+            {Math.round((hourPx / 36) * 100)}%
+          </button>
+          <button className="btn icon" onClick={() => setHourPx((h) => Math.min(180, h * 1.25))} aria-label={t('cal.zoomIn')} title={t('cal.zoomIn')}>
+            +
+          </button>
+        </div>
       </div>
       <div className="legend">
         {legend.map(([v, n]) => (
@@ -394,8 +400,8 @@ export function Calendar({
             {legendLabel(v)} <b className="num">{n}</b>
           </span>
         ))}
-        <span className="muted" style={{ marginLeft: 'auto' }}>
-          {t('cal.hint')}
+        <span className="hint" title={t('cal.hint')} aria-label={t('cal.hint')}>
+          ?
         </span>
       </div>
       <div className="cal-days">

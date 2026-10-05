@@ -134,11 +134,16 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
             { value: 'calendar', label: t('sessions.calendar') },
           ]}
         />
-        {chip('all', t('sessions.all'), counts.all)}
-        {chip('live', t('status.running'), counts.live)}
-        {chip('done', t('outcome.done'), counts.done)}
-        {chip('leftover', t('outcome.leftover'), counts.leftover)}
-        {chip('abandoned', t('outcome.abandoned'), counts.abandoned)}
+        <span className="sep" />
+        <div className="seg" role="group" aria-label={t('sessions.all')}>
+          {chip('all', t('sessions.all'), counts.all)}
+          {chip('live', t('status.running'), counts.live)}
+          {chip('done', t('outcome.done'), counts.done)}
+          {chip('leftover', t('outcome.leftover'), counts.leftover)}
+          {chip('abandoned', t('outcome.abandoned'), counts.abandoned)}
+        </div>
+        {hits && <span className="muted">{t('sessions.searchResults', { n: base.length })}</span>}
+        <span className="spacer" />
         <select className="sel" value={agent} onChange={(e) => setAgent(e.target.value as AgentFilter)} aria-label={t('agent.all')}>
           <option value="all">{t('agent.all')}</option>
           <option value="claude">{t('agent.claude')}</option>
@@ -152,14 +157,6 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
             </option>
           ))}
         </select>
-        <label className="chk">
-          <input type="checkbox" checked={subagents} onChange={(e) => setSubagents(e.target.checked)} />
-          {t('sessions.subagents')}
-        </label>
-        <label className="chk">
-          <input type="checkbox" checked={withChanges} onChange={(e) => setWithChanges(e.target.checked)} />
-          {t('sessions.withChanges')}
-        </label>
         {view === 'list' && (
           <select className="sel" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label={t('sessions.sort')}>
             <option value="recent">{t('sort.recent')}</option>
@@ -169,10 +166,24 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
             <option value="changes">{t('sort.changes')}</option>
           </select>
         )}
-        {hits && <span className="muted">{t('sessions.searchResults', { n: base.length })}</span>}
-        <span className="spacer" />
-        <button className="btn" onClick={() => void refreshSessions()}>
-          {t('sessions.reload')}
+        <details className="menu">
+          <summary>
+            {t('sessions.options')}
+            {subagents || withChanges ? ` · ${Number(subagents) + Number(withChanges)}` : ''}
+          </summary>
+          <div className="menu-body">
+            <label className="chk">
+              <input type="checkbox" checked={subagents} onChange={(e) => setSubagents(e.target.checked)} />
+              {t('sessions.subagents')}
+            </label>
+            <label className="chk">
+              <input type="checkbox" checked={withChanges} onChange={(e) => setWithChanges(e.target.checked)} />
+              {t('sessions.withChanges')}
+            </label>
+          </div>
+        </details>
+        <button className="btn icon ghost" onClick={() => void refreshSessions()} title={t('sessions.reload')} aria-label={t('sessions.reload')}>
+          ↻
         </button>
       </div>
       <div className={`sessions ${showTimeline ? '' : 'no-tl'}`}>

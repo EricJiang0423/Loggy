@@ -187,9 +187,9 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const chartCard = (k: string, title: Key, legendSeries: Series[], chart: ReactNode, table: ReactNode, wide = false) => (
     <div className={`chart-card ${wide ? 'wide' : ''}`}>
       <h3>
-        {t(title)}
+        <span className="h">{t(title)}</span>
         <span className="spacer" />
-        <button className="btn" onClick={() => toggle(k)}>
+        <button className="btn ghost" onClick={() => toggle(k)}>
           {tables[k] ? t('chart.chart') : t('chart.table')}
         </button>
       </h3>
@@ -266,7 +266,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
             <DataTable labels={daily.labels} series={peakSeries} format={(v) => int(v, lang)} firstHeader={t('chart.day')} />,
           )}
           <div className="chart-card">
-            <h3>{t('cmp.title')}</h3>
+            <h3><span className="h">{t('cmp.title')}</span></h3>
             <table className="grid">
               <thead>
                 <tr>
@@ -309,7 +309,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
             </div>
           </div>
           <div className="chart-card">
-            <h3>{t('proj.title')}</h3>
+            <h3><span className="h">{t('proj.title')}</span></h3>
             <div style={{ maxHeight: 300, overflow: 'auto' }}>
               <table className="grid">
                 <thead>
@@ -338,7 +338,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
             </div>
           </div>
           <div className="chart-card wide">
-            <h3>{t('anom.title')}</h3>
+            <h3><span className="h">{t('anom.title')}</span></h3>
             {anomalies.length === 0 ? (
               <div className="muted">{t('anom.none')}</div>
             ) : (

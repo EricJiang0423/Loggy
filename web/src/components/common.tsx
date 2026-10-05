@@ -76,7 +76,7 @@ export function Card({ title, extra, children }: { title: ReactNode; extra?: Rea
   return (
     <section className="card">
       <h3>
-        {title}
+        <span className="h">{title}</span>
         <span className="spacer" />
         {extra}
       </h3>
