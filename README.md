@@ -27,9 +27,17 @@ Loggy is a local dashboard for your **Claude Code** and **Codex** sessions. It r
 - **Chinese and English UI**, light and dark themes, keyboard navigation (↑/↓ or j/k in the list).
 - **Optional AI summaries.** Click a button to get a title, bullets, decisions and a per-request status. These are generated only when you click and only if `ANTHROPIC_API_KEY` is set.
 
-| Efficiency | Sessions (dark) |
+| Efficiency | Session list (dark) |
 |---|---|
-| ![Efficiency](docs/images/efficiency-en.png) | ![Sessions](docs/images/sessions-en-dark.png) |
+| ![Efficiency page with KPIs, daily charts and per-project table](docs/images/efficiency-en.png) | ![Session list with detail and timeline](docs/images/sessions-en-dark.png) |
+
+| Calendar colored by project (dark) | Timeline with tool calls and a question card |
+|---|---|
+| ![Week calendar colored by project](docs/images/projects-en-dark.png) | ![Session detail with commits, changed files and a timeline of tool calls](docs/images/timeline-en.png) |
+
+Project grouping in Settings:
+
+![Settings: project grouping options](docs/images/settings-zh.png)
 
 ## Install and run
 

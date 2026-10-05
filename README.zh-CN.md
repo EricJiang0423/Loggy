@@ -36,9 +36,17 @@ Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取�
 - **中英文界面**、浅色 / 深色主题、键盘导航（列表里用 ↑/↓ 或 j/k）。
 - **可选的 AI 概要**：点一下生成标题、要点、决策记录，以及每个请求是否完成。只有你点击、并且设置了 `ANTHROPIC_API_KEY` 时才会调用。
 
-| 效率 | 会话（深色） |
+| 效率（深色） | 会话列表（深色） |
 |---|---|
-| ![效率](docs/images/efficiency-zh-dark.png) | ![会话](docs/images/sessions-en-dark.png) |
+| ![效率页：KPI、每日图表和按项目统计](docs/images/efficiency-zh-dark.png) | ![会话列表、详情和时间线](docs/images/sessions-en-dark.png) |
+
+| 按项目着色的日历（深色） | 显示工具调用和问题卡片的时间线 |
+|---|---|
+| ![按项目着色的周日历](docs/images/projects-en-dark.png) | ![会话详情：提交、改动文件和工具调用时间线](docs/images/timeline-en.png) |
+
+设置里的项目分组方式：
+
+![设置：项目分组方式](docs/images/settings-zh.png)
 
 ## 安装和运行
 
