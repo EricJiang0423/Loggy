@@ -26,9 +26,12 @@ export interface SummaryResult {
 }
 
 const ATTACHMENT = Buffer.from('"attachment":{');
+const QUEUED_COMMAND = Buffer.from('"attachment":{"type":"queued_command"');
 const FILE_HISTORY = Buffer.from('"type":"file-history');
 
 function skipClaude(buf: Buffer, start: number, end: number): boolean {
+  // Queued commands are small and can carry background-task notifications.
+  if (indexIn(buf, QUEUED_COMMAND, start, Math.min(end, start + 200)) !== -1) return false;
   return indexIn(buf, ATTACHMENT, start, Math.min(end, start + 120)) !== -1 || indexIn(buf, FILE_HISTORY, start, Math.min(end, start + 60)) !== -1;
 }
 
@@ -65,11 +68,13 @@ export function summarizeFile(file: string, agent: Agent, resume?: { state: AccS
   };
 }
 
-export function detailFile(file: string, agent: Agent): Omit<SessionDetail, 'ai'> {
-  const state = agent === 'claude' ? initClaudeState(file) : initCodexState(file);
+/** Detail of one session; a Codex thread continued across rollout files passes all its pages, oldest first. */
+export function detailFile(files: string | string[], agent: Agent): Omit<SessionDetail, 'ai'> {
+  const pages = typeof files === 'string' ? [files] : files;
+  const state = agent === 'claude' ? initClaudeState(pages[0]) : initCodexState(pages[0]);
   const sink = new DetailSink();
   const responses = new Map<number, string>();
-  scanLines(file, 0, (buf, start, end) => {
+  for (const file of pages) scanLines(file, 0, (buf, start, end) => {
     if (agent === 'claude' && skipClaude(buf, start, end)) return;
     if (agent === 'codex') {
       const [top, sub] = sniffTypes(buf, start, end, 2);

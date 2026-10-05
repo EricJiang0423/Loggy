@@ -26,7 +26,8 @@ import { parseTs } from './lines.js';
 
 type Json = Record<string, any>;
 
-const MSG_WINDOW = 64;
+// ponytail: bounded de-dup window; Claude Code can repeat a message id ~80 records later.
+const MSG_WINDOW = 256;
 const TOOL_WINDOW = 256;
 
 export function initClaudeState(file: string): AccState {
@@ -173,6 +174,17 @@ export function claudeRecord(s: AccState, d: Json, sink?: DetailSink, responses?
     case 'summary':
       if (typeof d.summary === 'string' && !s.aiTitle) s.aiTitle = d.summary.trim();
       return;
+    case 'continued-in':
+      // The conversation moved to another session; this one stops here without being cut off.
+      markTurnEnded(s, ts, false);
+      return;
+    case 'queue-operation':
+    case 'attachment': {
+      // Background-task notifications queued while the agent was busy only show up here.
+      const queued = type === 'attachment' ? (d.attachment?.type === 'queued_command' ? d.attachment.prompt : undefined) : d.content;
+      if (typeof queued === 'string' && queued.includes('<task-notification>')) clearBackground(s, queued);
+      return;
+    }
     case 'permission-mode':
       if (d.permissionMode === 'plan' || d.mode === 'plan') s.hasPlan = true;
       return;
@@ -299,7 +311,11 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
   const model: string | undefined = msg.model;
   touch(s, ts);
   if (d.isApiErrorMessage) {
+    // Claude Code gave up (rate limit, overload, auth): the turn is over but did not finish.
     s.apiErrors++;
+    const t = currentTurn(s);
+    if (t) t.ended = t.interrupted = true;
+    s.pendingTool = false;
     return;
   }
   if (model && model !== '<synthetic>') addModel(s, model);
@@ -329,6 +345,11 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
   }
 
   const blocks: Json[] = Array.isArray(msg.content) ? msg.content : [];
+  const turn = currentTurn(s);
+  if (turn?.ended && blocks.some((b) => b?.type === 'tool_use')) {
+    // Work resumed after the turn ended (e.g. on a background-task notification).
+    turn.ended = turn.interrupted = false;
+  }
   let text = '';
   for (const b of blocks) {
     if (!b) continue;
@@ -361,7 +382,9 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
     sink?.item(ts, 'assistant', text, s.turns.length, undefined, 8000);
     if (responses) responses.set(s.turns.length, text);
   }
-  if (msg.stop_reason === 'end_turn' || msg.stop_reason === 'stop_sequence') {
+  const subagentDone = s.isSubagent && !msg.stop_reason && text && !blocks.some((b) => b?.type === 'tool_use');
+  if (msg.stop_reason === 'end_turn' || msg.stop_reason === 'stop_sequence' || msg.stop_reason === 'refusal' || subagentDone) {
+    // Subagent transcripts often end with a reply that never gets its stop_reason.
     markTurnEnded(s, ts, looksLikeQuestion(text || x.lastText || ''));
   } else if (msg.stop_reason === 'tool_use') {
     s.pendingTool = true;

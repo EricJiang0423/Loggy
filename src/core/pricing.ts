@@ -79,6 +79,6 @@ export function contextWindowFor(model: string | undefined, observedMax: number)
   const m = (model ?? '').toLowerCase();
   if (observedMax > 200_000) return 1_000_000;
   if (/haiku|claude-3/.test(m)) return 200_000;
-  if (/\[1m\]/.test(m)) return 1_000_000;
+  if (/\[1m\]|fable|mythos|(opus|sonnet)-5/.test(m)) return 1_000_000;
   return 200_000;
 }

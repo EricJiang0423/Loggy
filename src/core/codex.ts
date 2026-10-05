@@ -30,14 +30,17 @@ type Json = Record<string, any>;
 interface CodexX {
   /** Sampled usage history: [ts, 5h %, 7d %] (null when the window is absent). */
   rateHist?: [number, number | null, number | null][];
-  /** Running maxima of the cumulative token counters. */
+  /** Running maxima of the cumulative token counters (relative to this file's baseline). */
   tot: number[];
+  /** Set once the first token_count of this file has fixed the baseline. */
+  totSeen?: boolean;
   turnId?: string;
   lastText?: string;
   rate?: Record<string, Json>;
   cmpTop: number;
   cmpItem: number;
-  inputsInTurn: string[];
+  /** Recent inputs of the open turn as [text key, ts], to drop the same input reported twice. */
+  inputsInTurn: [string, number][];
 }
 
 const TOOL_TYPES = new Set(['function_call', 'custom_tool_call', 'local_shell_call', 'web_search_call', 'tool_search_call']);
@@ -87,7 +90,8 @@ export function codexLine(s: AccState, buf: Buffer, start: number, end: number):
     touch(s, sniffTimestamp(buf, start, end));
     return;
   }
-  if (top === 'world_state' || top === 'realtime_item' || top === 'inter_agent_communication_metadata') return;
+  // token_usage_record repeats token_count at thread level and can't tell inherited totals apart.
+  if (top === 'world_state' || top === 'realtime_item' || top === 'inter_agent_communication_metadata' || top === 'token_usage_record') return;
   if (top === 'event_msg') {
     const pt = types[1];
     if (pt === 'item_completed') {
@@ -184,7 +188,8 @@ function userInput(s: AccState, x: CodexX, ts: number, raw: string, sink?: Detai
   if (!text) return;
   const key = text.slice(0, 200);
   const t = currentTurn(s);
-  if (t && !t.ended && x.inputsInTurn.includes(key)) return; // same input reported twice
+  // Newer versions report each input twice (item + event) at the same moment.
+  if (t && !t.ended && x.inputsInTurn.some(([k, at]) => k === key && Math.abs(ts - at) < 10_000)) return;
   if (t && !t.ended && !t.prompt) {
     t.prompt = oneLine(text).slice(0, 300);
     if (ts) s.inputTimes.push(ts);
@@ -197,33 +202,47 @@ function userInput(s: AccState, x: CodexX, ts: number, raw: string, sink?: Detai
     beginTurn(s, ts, oneLine(text));
     x.inputsInTurn = [];
   }
-  x.inputsInTurn.push(key);
+  x.inputsInTurn.push([key, ts]);
+  if (x.inputsInTurn.length > 20) x.inputsInTurn.shift();
   sink?.item(ts, 'user', text, s.turns.length, undefined, 8000);
+}
+
+function usageVec(u: Json): number[] {
+  return [
+    Number(u.input_tokens ?? 0),
+    Number(u.cached_input_tokens ?? 0),
+    Number(u.cache_write_input_tokens ?? 0),
+    Number(u.output_tokens ?? 0),
+    Number(u.reasoning_output_tokens ?? 0),
+  ];
 }
 
 function tokens(s: AccState, x: CodexX, total: Json | undefined, last: Json | undefined, window: unknown): void {
   if (typeof window === 'number' && window > 0) s.ctxWindow = window;
-  if (total && typeof total === 'object') {
-    const cur = [
-      Number(total.input_tokens ?? 0),
-      Number(total.cached_input_tokens ?? 0),
-      Number(total.cache_write_input_tokens ?? 0),
-      Number(total.output_tokens ?? 0),
-      Number(total.reasoning_output_tokens ?? 0),
-    ];
-    const delta = cur.map((v, i) => Math.max(0, v - x.tot[i]));
-    x.tot = cur.map((v, i) => Math.max(v, x.tot[i]));
-    const ctx = last && typeof last === 'object' ? Number(last.input_tokens ?? 0) : 0;
-    if (delta.some((v) => v > 0) || ctx) {
-      // OpenAI input_tokens include cached tokens.
-      const cached = delta[1];
-      addUsage(
-        s,
-        s.lastModel,
-        { input: Math.max(0, delta[0] - cached), cacheRead: cached, cacheWrite5m: delta[2], cacheWrite1h: 0, output: delta[3], reasoning: delta[4] },
-        ctx,
-      );
-    }
+  if (!total || typeof total !== 'object') return;
+  const cur = usageVec(total);
+  const lastVec = last && typeof last === 'object' ? usageVec(last) : undefined;
+  if (!x.totSeen) {
+    // Subagents, forks and continued threads start from the parent's totals: only the
+    // latest request (last_token_usage) of the first snapshot belongs to this file.
+    x.totSeen = true;
+    if (lastVec) x.tot = cur.map((v, i) => Math.max(0, v - lastVec[i]));
+  } else if (cur[0] + cur[3] < (x.tot[0] + x.tot[3]) / 2) {
+    // ponytail: a drop below half is a restarted counter (process resumed); smaller drops are jitter.
+    x.tot = [0, 0, 0, 0, 0];
+  }
+  const delta = cur.map((v, i) => Math.max(0, v - x.tot[i]));
+  x.tot = cur.map((v, i) => Math.max(v, x.tot[i]));
+  const ctx = lastVec ? lastVec[0] : 0;
+  if (delta.some((v) => v > 0) || ctx) {
+    // OpenAI input_tokens include cached tokens.
+    const cached = delta[1];
+    addUsage(
+      s,
+      s.lastModel,
+      { input: Math.max(0, delta[0] - cached), cacheRead: cached, cacheWrite5m: delta[2], cacheWrite1h: 0, output: delta[3], reasoning: delta[4] },
+      ctx,
+    );
   }
 }
 
@@ -281,9 +300,6 @@ export function codexRecord(s: AccState, d: Json, sink?: DetailSink, responses?:
       if (typeof p.model === 'string') addModel(s, p.model);
       if (!s.cwd && typeof p.cwd === 'string') s.cwd = p.cwd;
       return;
-    case 'token_usage_record':
-      tokens(s, x, p.thread_token_usage, undefined, undefined);
-      return;
     case 'compacted':
       x.cmpTop++;
       sink?.item(ts, 'system', 'compact', s.turns.length);
@@ -303,10 +319,10 @@ function eventMsg(s: AccState, x: CodexX, p: Json, ts: number, sink?: DetailSink
   switch (p.type) {
     case 'task_started': {
       if (typeof p.model_context_window === 'number') s.ctxWindow = p.model_context_window;
-      const startTs = typeof p.started_at === 'number' ? p.started_at * 1000 : ts;
+      // started_at can be hours off the record time, so the record time is used.
       x.turnId = p.turn_id;
       x.inputsInTurn = [];
-      beginTurn(s, startTs || ts, '', false);
+      beginTurn(s, ts, '', false);
       return;
     }
     case 'task_complete': {

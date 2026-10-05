@@ -18,11 +18,16 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 | `assistant` | `message.id`, `model`, `stop_reason`, `usage`, content blocks (`text`, `thinking`, `tool_use`) |
 | `system` | `compact_boundary` (context compaction), `api_error`, `stop_hook_summary`, `turn_duration`, … |
 | `custom-title`, `ai-title` | session names |
-| `queue-operation`, `last-prompt`, `attachment`, `mode`, `permission-mode`, `file-history-*`, `bridge-session`, `pr-link`, … | metadata, mostly ignored |
+| `queue-operation`, `attachment` (`queued_command`) | input queued while the agent was busy, including background-task notifications |
+| `continued-in` | `continuedInSessionId`: the conversation moved to another session |
+| `last-prompt`, `mode`, `permission-mode`, `file-history-*`, `bridge-session`, `pr-link`, other `attachment` types, … | metadata, mostly ignored |
 
 **Quirks**
 
-- **One API response becomes several lines**, one per content block, and each line repeats `usage`. Sometimes the repeated values differ as streaming updates arrive. Loggy keeps, per `message.id`, the maximum of each usage component and counts the increase.
+- **One API response becomes several lines**, one per content block, and each line repeats `usage`. Sometimes the repeated values differ as streaming updates arrive, and a `message.id` can reappear dozens of records later. Loggy keeps, per `message.id`, the maximum of each usage component and counts the increase.
+- Subagent transcripts often end with a text reply whose `stop_reason` is never filled in.
+- When Claude Code gives up on a request (rate limit, overload, expired login) it writes an assistant record with `isApiErrorMessage: true`, model `<synthetic>` and the error text. The turn ends there.
+- The context window is not recorded. In Claude Code the Opus 5, Sonnet 5 and Fable models run with 1M tokens; `compact_boundary.compactMetadata.preTokens` shows where auto-compaction kicked in.
 - `usage.cache_creation` splits cache writes into `ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens`, which have different prices.
 - Interrupts appear as a user text starting with `[Request interrupted by user`.
 - File changes appear in `toolUseResult`:
@@ -33,7 +38,7 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 - Background work:
   - Bash results carry `backgroundTaskId`.
   - Agent results carry `isAsync` with `agentId`.
-  - Completion arrives later as a `<task-notification>` text.
+  - Completion arrives later as a `<task-notification>` text: as a user record when the agent was idle, otherwise only in `queue-operation` (`content`) and `attachment` / `queued_command` (`prompt`) records.
 - `quotaLimits` on some assistant records carries a quota *status*, not percentages. The 5h / 7d percentages are only available to the status line command (`rate_limits.five_hour.used_percentage`, …).
 - Claude Code removes transcripts older than `cleanupPeriodDays` (default 30) at startup. Raise that setting if you want a longer history.
 
@@ -44,6 +49,7 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 - `sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl`
 - `archived_sessions/`
 - Older files may be compressed to `.jsonl.zst`. Loggy reads them with Node's built-in zstd.
+- A thread can continue in a new rollout file. Its `session_meta.id` is the thread id (not the id in the file name) and `history_base {thread_id, end_ordinal_exclusive, end_byte_offset}` points to the previous file. Loggy shows all files of a thread as one session.
 - `state_<N>.sqlite` is Codex's own index. Loggy doesn't need it.
 
 **Records:** every line is `{timestamp, type, payload}`. Newer versions also add `ordinal`.
@@ -56,13 +62,19 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 | `event_msg/item_completed` | `UserMessage`, `AgentMessage`, `FileChange` (`changes` with `unified_diff` or `content`), `CommandExecution` (`command`, `exit_code`, `status`, `aggregated_output`), `McpToolCall`, `ContextCompaction` |
 | `event_msg/user_message`, `agent_message` | older equivalents of the items above |
 | `event_msg/token_count` | `info.total_token_usage` (cumulative), `last_token_usage`, `rate_limits.primary/secondary {used_percent, window_minutes, resets_at}` |
-| `token_usage_record` | `thread_token_usage` (cumulative), newer versions |
+| `token_usage_record` | `thread_token_usage` (cumulative), newer versions. Repeats `token_count`, so Loggy doesn't count it. |
 | `response_item` | `message`, `reasoning` (encrypted), `function_call` / `custom_tool_call`, outputs |
 | `compacted`, `world_state` | compaction marker, environment snapshot |
 
 **Quirks**
 
-- Token counters are **cumulative and sometimes go backwards**, and two record types carry them. Loggy keeps a running maximum per component and counts only the increases.
+- Token counters are **cumulative**:
+  - Subagents, forks and continued threads start from the parent's totals. Only `last_token_usage` of the first `token_count` in a file belongs to that file.
+  - After a resume the counter can restart near zero. Loggy treats a drop below half as a restart and keeps counting from there.
+  - Smaller drops are noise. Loggy keeps a running maximum per component and counts only the increases.
+- `task_started.started_at` can be hours away from the record's own `timestamp`. Loggy uses the record time.
+- Newer versions report each input twice, as a `UserMessage` item and a `user_message` event at the same moment. The same text sent again later is a new input.
+- `model_context_window` changes when the model changes, so the peak context % is measured per request.
 - `input_tokens` already includes `cached_input_tokens`.
 - `primary` is not always the 5-hour window. Identify windows by `window_minutes` (300 or 10080).
 - `response_item` messages with role `user` include injected context such as environment and AGENTS.md text. Real user input comes from `UserMessage` items, or `user_message` in older versions.

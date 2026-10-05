@@ -5,7 +5,7 @@ import type { Agent } from '../shared/types.js';
 
 export type Task =
   | { kind: 'summary'; file: string; agent: Agent; resume?: { state: AccState; offset: number } }
-  | { kind: 'detail'; file: string; agent: Agent }
+  | { kind: 'detail'; files: string[]; agent: Agent }
   | { kind: 'prices'; table: Record<string, Price> };
 
 export function runTask(task: Task): unknown {
@@ -13,7 +13,7 @@ export function runTask(task: Task): unknown {
     case 'summary':
       return summarizeFile(task.file, task.agent, task.resume);
     case 'detail':
-      return detailFile(task.file, task.agent);
+      return detailFile(task.files, task.agent);
     case 'prices':
       setPriceOverrides(task.table);
       return true;

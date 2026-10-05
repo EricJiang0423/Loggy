@@ -15,7 +15,7 @@ import type {
 } from '../shared/types.js';
 import { contextWindowFor, costOf, type UsageForCost } from './pricing.js';
 
-export const PARSER_VERSION = 3;
+export const PARSER_VERSION = 4;
 const BUCKET_MS = 600_000;
 const WAIT_CAP_MS = 30 * 60_000;
 const IDLE_SPLIT_MS = 30 * 60_000;
@@ -62,6 +62,8 @@ export interface AccState {
   ctxTokensMax: number;
   ctxTokensLast: number;
   ctxWindow: number;
+  /** Peak context % measured against the window in effect at each request (when the log states it). */
+  ctxPctMax?: number;
   toolCalls: number;
   toolErrors: number;
   interrupts: number;
@@ -224,6 +226,7 @@ export function addUsage(s: AccState, model: string | undefined, u: UsageForCost
     s.ctxTokensLast = contextTokens;
     if (contextTokens > s.ctxTokensMax) s.ctxTokensMax = contextTokens;
     if (t && contextTokens > t.ctx) t.ctx = contextTokens;
+    if (s.ctxWindow) s.ctxPctMax = Math.max(s.ctxPctMax ?? 0, (contextTokens / s.ctxWindow) * 100);
   }
   return cost;
 }
@@ -366,7 +369,7 @@ export function finalize(s: AccState): SessionSummary {
     userInputs: s.inputTimes.length,
     tokens: { input: s.input, output: s.output, cacheRead: s.cacheRead, cacheWrite: s.cacheWrite, reasoning: s.reasoning },
     costUSD: s.cost,
-    ctxPeakPct: window ? Math.min(100, (s.ctxTokensMax / window) * 100) : 0,
+    ctxPeakPct: s.ctxPctMax !== undefined ? Math.min(100, s.ctxPctMax) : window ? Math.min(100, (s.ctxTokensMax / window) * 100) : 0,
     ctxLastPct: window ? Math.min(100, (s.ctxTokensLast / window) * 100) : 0,
     toolCalls: s.toolCalls,
     toolErrors: s.toolErrors,

@@ -56,12 +56,13 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
   });
 
   async function detailOf(id: string): Promise<Omit<SessionDetail, 'ai'> | undefined> {
-    const e = indexer.entryById(id);
+    const pages = indexer.pagesOf(id);
+    const e = pages.at(-1);
     if (!e) return undefined;
-    const key = `${e.file}:${e.size}:${e.mtime}`;
+    const key = pages.map((p) => `${p.file}:${p.size}:${p.mtime}`).join('|');
     const hit = detailCache.get(id);
     if (hit && hit.key === key) return hit.detail;
-    const detail = await pool.run<Omit<SessionDetail, 'ai'>>({ kind: 'detail', file: e.file, agent: e.agent }, true);
+    const detail = await pool.run<Omit<SessionDetail, 'ai'>>({ kind: 'detail', files: pages.map((p) => p.file), agent: e.agent }, true);
     detail.summary = indexer.summaries().find((s) => s.id === id) ?? { ...detail.summary, projectPath: e.summary.projectPath, project: e.summary.project };
     detailCache.set(id, { key, detail });
     if (detailCache.size > 30) detailCache.delete(detailCache.keys().next().value!);

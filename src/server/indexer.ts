@@ -397,23 +397,18 @@ export class Indexer extends EventEmitter {
   /** Summaries with live status and subagent roll-ups. */
   summaries(): SessionSummary[] {
     const now = Date.now();
-    const byId = new Map<string, Entry>();
-    for (const e of this.entries.values()) {
-      const prev = byId.get(e.summary.id);
-      if (!prev || e.summary.end > prev.summary.end) byId.set(e.summary.id, e);
-    }
+    const merged = [...this.pagesById().values()].map((pages) => (pages.length === 1 ? pages[0].summary : mergePages(pages.map((e) => e.summary))));
     const kids = new Map<string, { n: number; cost: number }>();
-    for (const e of byId.values()) {
-      const p = e.summary.parentId;
+    for (const s of merged) {
+      const p = s.parentId;
       if (!p) continue;
       const k = kids.get(p) ?? { n: 0, cost: 0 };
       k.n++;
-      k.cost += e.summary.costUSD;
+      k.cost += s.costUSD;
       kids.set(p, k);
     }
     const out: SessionSummary[] = [];
-    for (const e of byId.values()) {
-      const s = e.summary;
+    for (const s of merged) {
       const k = kids.get(s.id);
       out.push({ ...s, status: liveStatus(s, now), children: k?.n ?? 0, totalCostUSD: s.costUSD + (k?.cost ?? 0) });
     }
@@ -430,10 +425,30 @@ export class Indexer extends EventEmitter {
     return { gen: this.gen, full: false, sessions: all.filter((s) => changedFiles.has(s.id)), removed };
   }
 
-  entryById(id: string): Entry | undefined {
-    let best: Entry | undefined;
-    for (const e of this.entries.values()) if (e.summary.id === id && (!best || e.summary.end > best.summary.end)) best = e;
-    return best;
+  /**
+   * Entries grouped by session id, oldest page first. Newer Codex versions continue a thread
+   * in a new rollout file whose session_meta repeats the thread id, so one session can span files.
+   */
+  private pagesById(): Map<string, Entry[]> {
+    const byId = new Map<string, Entry[]>();
+    for (const e of this.entries.values()) {
+      const pages = byId.get(e.summary.id);
+      if (!pages) {
+        byId.set(e.summary.id, [e]);
+        continue;
+      }
+      // The same rollout under two roots (e.g. sessions and archived_sessions) is one page.
+      const dup = pages.findIndex((p) => path.basename(p.file) === path.basename(e.file));
+      if (dup === -1) pages.push(e);
+      else if (e.summary.end > pages[dup].summary.end) pages[dup] = e;
+    }
+    for (const pages of byId.values()) if (pages.length > 1) pages.sort((a, b) => a.summary.start - b.summary.start);
+    return byId;
+  }
+
+  /** Every page of a session, oldest first. */
+  pagesOf(id: string): Entry[] {
+    return this.pagesById().get(id) ?? [];
   }
 
   search(q: string): string[] {
@@ -524,6 +539,56 @@ export class Indexer extends EventEmitter {
   knownFiles(): number {
     return this.known.length;
   }
+}
+
+/** One session from the summaries of its pages, oldest first. */
+function mergePages(pages: SessionSummary[]): SessionSummary {
+  const first = pages[0];
+  const last = pages[pages.length - 1];
+  const sum = (k: keyof SessionSummary) => pages.reduce((n, p) => n + (p[k] as number), 0);
+  const buckets = new Map<number, number>();
+  for (const p of pages) for (const [b, v] of p.buckets) buckets.set(b, (buckets.get(b) ?? 0) + v);
+  const named = last.titleSource === 'custom' || last.titleSource === 'ai' ? last : first;
+  return {
+    ...last,
+    title: named.title,
+    titleSource: named.titleSource,
+    firstPrompt: first.firstPrompt,
+    models: [...new Set(pages.flatMap((p) => p.models))],
+    start: Math.min(...pages.map((p) => p.start || Infinity)) || last.start,
+    end: Math.max(...pages.map((p) => p.end)),
+    mtime: Math.max(...pages.map((p) => p.mtime)),
+    tokens: {
+      input: pages.reduce((n, p) => n + p.tokens.input, 0),
+      output: pages.reduce((n, p) => n + p.tokens.output, 0),
+      cacheRead: pages.reduce((n, p) => n + p.tokens.cacheRead, 0),
+      cacheWrite: pages.reduce((n, p) => n + p.tokens.cacheWrite, 0),
+      reasoning: pages.reduce((n, p) => n + p.tokens.reasoning, 0),
+    },
+    costUSD: sum('costUSD'),
+    ctxPeakPct: Math.max(...pages.map((p) => p.ctxPeakPct)),
+    maxToolCallsPerTurn: Math.max(...pages.map((p) => p.maxToolCallsPerTurn)),
+    turns: sum('turns'),
+    userInputs: sum('userInputs'),
+    toolCalls: sum('toolCalls'),
+    toolErrors: sum('toolErrors'),
+    interrupts: sum('interrupts'),
+    compactions: sum('compactions'),
+    apiErrors: sum('apiErrors'),
+    questions: sum('questions'),
+    // ponytail: a file edited on two pages counts twice here; the detail view has the exact list.
+    filesChanged: sum('filesChanged'),
+    linesAdded: sum('linesAdded'),
+    linesRemoved: sum('linesRemoved'),
+    commits: sum('commits'),
+    pushes: sum('pushes'),
+    activeMs: sum('activeMs'),
+    waitMs: sum('waitMs'),
+    badLines: sum('badLines'),
+    hasPlan: pages.some((p) => p.hasPlan),
+    buckets: [...buckets].sort((a, b) => a[0] - b[0]),
+    inputTimes: pages.flatMap((p) => p.inputTimes).slice(-500),
+  };
 }
 
 function readdir(dir: string): fs.Dirent[] {
