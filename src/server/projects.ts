@@ -70,12 +70,14 @@ export function groupProjects(
   list: SessionSummary[],
   mode: GroupBy,
   placeOf: (cwd: string) => Place,
-  exists: (p: string) => boolean = fs.existsSync,
+  existsOnDisk: (p: string) => boolean = fs.existsSync,
   /** sessionId -> project the user chose in the Codex app (smart mode only) */
   assigned: Map<string, string> = new Map(),
 ): void {
   const groups = new Map<string, Group>();
   const pick = new Map<SessionSummary, Group>();
+  const seen = new Map<string, boolean>();
+  const exists = (p: string) => seen.get(p) ?? (seen.set(p, existsOnDisk(p)), seen.get(p)!);
   const repoOf = (s: SessionSummary, p: Place) => p.remote ?? normalizeRemote(s.repo);
 
   // A git root without an origin remote takes the repo that sessions inside it recorded.

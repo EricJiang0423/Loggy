@@ -16,6 +16,7 @@ import { groupProjects, readRemote, type GroupBy, type Place } from './projects.
 const CACHE_VERSION = 2;
 const KEEP_STATE_MS = 3 * 86400_000;
 const HOT_MS = 20 * 60_000;
+const HEAD_BYTES = 256 * 1024;
 
 export interface Entry {
   file: string;
@@ -596,35 +597,47 @@ export class Indexer extends EventEmitter {
 
   // ---------- rewinds ----------
 
-  private heads = new Map<string, string>();
+  /** file -> first uuid ('' when none), with the size it was read at. */
+  private heads = new Map<string, { size: number; head: string }>();
 
   /** uuid of the first record of a Claude transcript: forks of one conversation share it. */
   private lineageHead(file: string): string | undefined {
+    const parsed = this.entries.get(file)?.summary.lineage;
+    if (parsed) return parsed;
+    let size = 0;
+    try {
+      size = fs.statSync(file).size;
+    } catch {
+      return undefined;
+    }
     const hit = this.heads.get(file);
-    if (hit) return hit;
+    // a miss is final once the whole read window is filled; until then the file may still grow into it
+    if (hit && (hit.head || hit.size === size || hit.size >= HEAD_BYTES)) return hit.head || undefined;
     let text = '';
     try {
       const fd = fs.openSync(file, 'r');
-      const buf = Buffer.alloc(256 * 1024);
+      const buf = Buffer.alloc(Math.min(size, HEAD_BYTES));
       const n = fs.readSync(fd, buf, 0, buf.length, 0);
       fs.closeSync(fd);
       text = buf.toString('utf8', 0, n);
     } catch {
       return undefined;
     }
+    let head = '';
     for (const line of text.split('\n')) {
       if (!line.includes('"uuid"')) continue;
       try {
         const d = JSON.parse(line);
         if (typeof d.uuid === 'string' && !d.isSidechain) {
-          this.heads.set(file, d.uuid);
-          return d.uuid;
+          head = d.uuid;
+          break;
         }
       } catch {
         // partial line at the end of the read
       }
     }
-    return undefined;
+    this.heads.set(file, { size, head });
+    return head || undefined;
   }
 
   /** Earlier files of the same conversation, oldest first: their records were copied into this one. */
