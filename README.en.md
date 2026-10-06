@@ -62,6 +62,8 @@ loggy
 
 Loggy opens `http://127.0.0.1:4317` in your browser. The first run indexes every log, which takes a few seconds for several GB. Later runs start from a cache in `~/.loggy`. To try it without your own data, run `loggy --demo`.
 
+To upgrade, run `npm install -g …` again with the new release link and restart `loggy`. The cache and settings in `~/.loggy` are kept; when the parser changes, the new version re-indexes on its own.
+
 From source:
 
 ```sh
@@ -116,9 +118,9 @@ fs.watch + polling ──────────┘   parse, resume            
   - Claude Code writes one line per content block with the same `usage`, so Loggy de-duplicates by `message.id`.
   - Codex token counters are cumulative and can go backwards.
   - Subagent logs live in their own files.
-- **Privacy.** The server listens on `127.0.0.1` only, rejects foreign `Host` headers, and makes no network requests except the AI summaries and categories you set up.
+- **Privacy.** The server listens on `127.0.0.1` only, rejects foreign `Host` headers, and makes no network requests except the AI summaries and categories you set up. The Git and Instructions pages run read-only git commands (`log`, `show`, `diff`, `ls-tree`, `cat-file`) and never change your repository.
 
-Measured on a 4-core container with 1,116 synthetic sessions (523 MB): a cold index took 3.9 s, a warm start 0.35 s, a new log line showed up in the UI 0.1 s after it was written, and a session detail loaded in 50 ms. Run `npm run perf` to reproduce.
+Measured on a Mac with 1,136 synthetic sessions (524 MB): a cold index took 2.2 s, a warm start 0.2 s, the session list (2 MB) about 0.4 s, a new log line showed up in the UI 0.1 s after it was written, and a session detail loaded in 60–90 ms. Run `npm run perf` to reproduce.
 
 ## Development
 
