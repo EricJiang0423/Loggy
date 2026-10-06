@@ -7,6 +7,7 @@ import {
   type AccState,
   DetailSink,
   addCommit,
+  addCommitRun,
   addFileChange,
   addModel,
   addSpeed,
@@ -274,6 +275,9 @@ function commandItem(s: AccState, item: Json, ts: number, sink?: DetailSink): vo
   const ok = item.status !== 'failed' && (item.exit_code === 0 || item.exit_code === undefined || item.exit_code === null);
   const out = String(item.aggregated_output ?? item.output ?? '');
   if (ok && /\bgit\b[^\n]*\bcommit\b/.test(cmd)) {
+    // ponytail: the item has no start time; a commit made up to 2 minutes before it finished counts.
+    const ms = typeof item.duration_ms === 'number' ? item.duration_ms : 120_000;
+    addCommitRun(s, ts - ms, ts);
     const m = COMMIT_RE.exec(out);
     if (m) addCommit(s, ts, m[2], sink, m[3]?.trim() || undefined, m[1]);
   }

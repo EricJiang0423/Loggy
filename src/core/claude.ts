@@ -6,6 +6,7 @@ import {
   type AccState,
   DetailSink,
   addCommit,
+  addCommitRun,
   addFileChange,
   addModel,
   addSpeed,
@@ -55,6 +56,8 @@ interface ClaudeX {
   toolOrder: string[];
   /** tool_use id -> commit message guess (bounded via toolOrder). */
   cmd: Record<string, string>;
+  /** tool_use id -> start of a `git commit` command (bounded via toolOrder). */
+  commitAt?: Record<string, number>;
   lastPromptId?: string;
   /** Time of the previous record, for output speed. */
   lastTs?: number;
@@ -97,6 +100,7 @@ function rememberTool(x: ClaudeX, id: string, name: string): void {
       const old = x.toolOrder.shift()!;
       delete x.tools[old];
       delete x.cmd[old];
+      if (x.commitAt) delete x.commitAt[old];
     }
   }
   x.tools[id] = name;
@@ -260,6 +264,8 @@ function toolResults(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: Detail
     if (!b || b.type !== 'tool_result') continue;
     toolName = x.tools[b.tool_use_id] ?? '';
     if (b.is_error) addToolError(s);
+    const commitAt = x.commitAt?.[b.tool_use_id];
+    if (commitAt && !b.is_error) addCommitRun(s, commitAt, ts);
     if (sink) sink.item(ts, 'result', resultText(b), s.turns.length, { tool: toolName, isError: !!b.is_error }, 600);
   }
   s.pendingTool = false;
@@ -374,6 +380,7 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
       addTool(s);
       const input = b.input ?? {};
       if (name === 'Bash' && typeof input.command === 'string' && /\bgit\b[^\n]*\bcommit\b/.test(input.command)) {
+        (x.commitAt ??= {})[b.id] = ts;
         const m = commitMessageFrom(input.command);
         if (m) x.cmd[b.id] = m.slice(0, 200);
       }

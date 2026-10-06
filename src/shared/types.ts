@@ -99,6 +99,8 @@ export interface SessionSummary {
   speed?: Record<string, [number, number]>;
   /** Commits made in the session (full or short sha), newest last. */
   commitShas?: string[];
+  /** When `git commit` commands ran ([start, end] ms), to find commits that printed no id. */
+  commitRuns?: [number, number][];
   /** Your bookmark, label and note (filled by the server). */
   mark?: SessionMark;
   /** Smart category from the AI classification (filled by the server). */

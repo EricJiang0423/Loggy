@@ -15,7 +15,7 @@ import type {
 } from '../shared/types.js';
 import { contextWindowFor, costOf, type UsageForCost } from './pricing.js';
 
-export const PARSER_VERSION = 6;
+export const PARSER_VERSION = 7;
 const BUCKET_MS = 600_000;
 const WAIT_CAP_MS = 30 * 60_000;
 const IDLE_SPLIT_MS = 30 * 60_000;
@@ -91,6 +91,8 @@ export interface AccState {
   ctxParts?: [number, number, number];
   speed?: Record<string, [number, number]>;
   shas?: string[];
+  /** When `git commit` commands ran: [start, end] ms (a quiet commit prints no id). */
+  commitRuns?: [number, number][];
   /** Agent-specific scratch space (must stay JSON-serializable and bounded). */
   x: Record<string, unknown>;
 }
@@ -282,6 +284,13 @@ export function addCommit(s: AccState, ts: number, sha: string, sink?: DetailSin
   sink?.commitList.push({ sha, ts, message, branch, turn: s.turns.length });
 }
 
+/** A `git commit` command ran between start and end; matched to commits by time when no id was printed. */
+export function addCommitRun(s: AccState, start: number, end: number): void {
+  if (!start || !end) return;
+  (s.commitRuns ??= []).push([Math.min(start, end), Math.max(start, end)]);
+  if (s.commitRuns.length > 200) s.commitRuns.shift();
+}
+
 export function markInterrupted(s: AccState): void {
   s.interrupts++;
   const t = currentTurn(s);
@@ -419,6 +428,7 @@ export function finalize(s: AccState): SessionSummary {
     ctxParts: s.ctxParts,
     speed: s.speed,
     commitShas: s.shas,
+    commitRuns: s.commitRuns,
     component,
     hasPlan: s.hasPlan,
     badLines: s.badLines,

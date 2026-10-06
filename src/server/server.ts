@@ -11,7 +11,7 @@ import { AutoSummarizer } from './autosum.js';
 import type { AiSummary, SessionMark } from '../shared/types.js';
 import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
-import { gitLines, gitLog, gitShow } from './git.js';
+import { gitLines, gitLog, gitShow, linkCommits } from './git.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
@@ -198,10 +198,8 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
           if (p === '/api/git/show') return sendJson(req, res, await gitShow(project, url.searchParams.get('sha') ?? ''));
           if (p === '/api/git/lines') return sendJson(req, res, await gitLines(project, cfg.dataDir));
           const commits = await gitLog(project, { q: url.searchParams.get('q') || undefined, path: url.searchParams.get('path') || undefined });
-          // Which session made each commit.
-          const bySha = new Map<string, string>();
-          for (const s of indexer.summaries()) for (const sha of s.commitShas ?? []) bySha.set(sha.slice(0, 7), s.id);
-          return sendJson(req, res, { commits: commits.map((c) => ({ ...c, session: bySha.get(c.sha.slice(0, 7)) })) });
+          const owner = linkCommits(commits, indexer.summaries(), project);
+          return sendJson(req, res, { commits: commits.map((c) => ({ ...c, session: owner.get(c.sha) })) });
         } catch (err) {
           return sendJson(req, res, { error: (err as Error).message }, 500);
         }

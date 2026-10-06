@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1 - 2026-10-07
+
+### Fixed
+
+- **Git page: commits made with `git commit -q` now show the session that made them.** A quiet commit prints no commit id, so Loggy could not tell which session made it and the commit graph stayed gray on real repositories. Loggy now also records when each session ran `git commit` and matches commits in the same repository by time. The per-turn list puts these commits under the turn that was running.
+
 ## 0.6.0 - 2026-10-06
 
 ### Added

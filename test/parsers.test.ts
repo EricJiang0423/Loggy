@@ -97,6 +97,17 @@ describe('claude edge cases', () => {
     expect(summary.costUSD).toBeCloseTo(0.00174, 8);
   });
 
+  test('a quiet git commit prints no id: the time it ran is kept to match the commit later', () => {
+    const f = writeLines('quiet-commit.jsonl', [
+      { ...base, type: 'user', uuid: 'u1', timestamp: '2026-10-01T10:00:00Z', promptId: 'p1', origin: { kind: 'human' }, message: { role: 'user', content: 'commit it' } },
+      { ...base, type: 'assistant', uuid: 'a1', timestamp: '2026-10-01T10:00:05Z', message: { id: 'm1', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'git add -A && git commit -q -m "Fix it"' } }], stop_reason: 'tool_use' } },
+      { ...base, type: 'user', uuid: 'u2', timestamp: '2026-10-01T10:00:08Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: '' }] }, toolUseResult: { stdout: '', stderr: '' } },
+    ]);
+    const { summary } = summarizeFile(f, 'claude');
+    expect(summary.commits).toBe(0);
+    expect(summary.commitRuns).toEqual([[Date.parse('2026-10-01T10:00:05Z'), Date.parse('2026-10-01T10:00:08Z')]]);
+  });
+
   test('meta records, tool results and interrupts do not start turns', () => {
     const f = writeLines('meta.jsonl', [
       { ...base, type: 'user', uuid: 'u1', timestamp: '2026-10-01T10:00:00Z', promptId: 'p1', message: { role: 'user', content: 'do it' } },
