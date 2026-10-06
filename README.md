@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取这两个工具本来就写在本机的日志，把每个会话画成周日历上的一根竖条，并提供会话详情、对话时间线、完成判定和效率分析。不用装 hook，不用改配置，也不会往你的仓库里写任何东西。
+Loggy 是 **Claude Code**、**Codex** 和 **Pi** 会话的本地看板。它直接读取这三个工具本来就写在本机的日志，把每个会话画成周日历上的一根竖条，并提供会话详情、对话时间线、完成判定和效率分析。不用装 hook，不用改配置，也不会往你的仓库里写任何东西。
 
 ![周日历、会话详情和时间线](docs/images/calendar-zh.png)
 
@@ -34,7 +34,7 @@ Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取�
 - **效率分析**：
   - 等价 API 花费、Agent 工作时间、Agent 等你的时间、会话数、提交数、改动行数、缓存命中率、最多同时进行的会话数，都会和上一周期对比
   - 每天的趋势图，以及「星期 × 小时」热力图
-  - Claude Code 与 Codex 的对比，按项目的统计表，各模型的输出速度（估算）
+  - Claude Code、Codex 与 Pi 的对比，按项目的统计表，各模型的输出速度（估算）
   - 「值得一看」列表：花了钱却没产出、上下文接近上限、工具调用陷入循环、结束时还有未提交改动的会话
 - **项目分组**：可以在设置里选择按 git 远程仓库、git 根目录或工作目录分组。默认的智能分组优先用你在 Codex 应用里给对话指定的项目，其次在能识别仓库时（来自 git、Codex 日志或 Claude 的 PR 链接）按仓库分组，目录已被删除的会话也能归到对应项目。Codex 会话的标题用 Codex 应用里的对话名（改过名就用最新的）。
 - **Git**：画出所有本地分支的提交图，每个提交按产生它的会话着色；点开提交能看到改动的文件和 diff，以及这个会话每一轮对话分别做了哪些提交。可以搜索提交信息、按路径筛选，还有按目录统计的代码行数趋势。
@@ -86,14 +86,16 @@ npm ci && npm run build && npm start
 
 ```
 loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
-      [--claude-dir <目录>]... [--codex-dir <目录>]... [--data-dir <目录>] [--ai-model <模型>]
+      [--claude-dir <目录>]... [--codex-dir <目录>]... [--pi-dir <目录>]...
+      [--data-dir <目录>] [--ai-model <模型>]
 ```
 
 默认读取以下位置：
 - Claude Code：`$CLAUDE_CONFIG_DIR` 和 `~/.claude/projects`
 - Codex：`$CODEX_HOME`（或 `~/.codex`）下的 `sessions` 和 `archived_sessions`
+- Pi：`$PI_CODING_AGENT_SESSION_DIR`，或 `$PI_CODING_AGENT_DIR` 和 `~/.pi/agent` 下的 `sessions`
 
-有多个账号的话，可以多次传 `--claude-dir` / `--codex-dir`。
+有多个账号的话，可以多次传 `--claude-dir` / `--codex-dir` / `--pi-dir`。
 
 ### AI 概要（可选）
 
@@ -123,9 +125,10 @@ loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
 
 - **多线程解析**：日志在 worker 线程里解析，读几千个文件时界面也不卡。Codex 的 rollout 文件可能很大，所以每行先看开头几个字节判断类型，只有需要的记录才做 JSON 解析。
 - **增量更新**：文件变长时，从上次读到的位置接着解析，并恢复当时的解析状态；没变的文件直接用缓存。文件监听（fs.watch）加轮询，更新通过 SSE 推送到浏览器。
-- **日志格式**：两种日志的格式和坑写在 [docs/log-formats.md](docs/log-formats.md)，比如：
+- **日志格式**：三种日志的格式和坑写在 [docs/log-formats.md](docs/log-formats.md)，比如：
   - Claude Code 会把同一条回复按内容块拆成多行，每行都带同一份 `usage`，所以要按 `message.id` 去重；
   - Codex 的 token 是累计值，而且偶尔会变小；
+  - Pi 不写 git 信息，提交和分支要从命令和仓库里推断；
   - 子代理的日志在单独的文件里。
 - **隐私**：只监听 `127.0.0.1`，拒绝其他 `Host` 头。除了你配置的 AI 概要和分类，不发任何网络请求。Git 页和指令页只运行只读的 git 命令（`log`、`show`、`diff`、`ls-tree`、`cat-file`），不会改动你的仓库。
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Pi sessions as a third source.** Loggy reads `~/.pi/agent/sessions` (or `$PI_CODING_AGENT_SESSION_DIR`) next to Claude Code and Codex: `--pi-dir` points at another session directory. Turns, tokens, models, tool calls, diffs, compactions, interrupts and failed requests come from the session entries; `session_info` gives the title. Since Pi writes no git metadata, commits come from the `[branch sha] message` line a `git commit` prints and the branch is read from the repository on disk. A session made with `/fork` or `/clone` is shown as one session with its parent, the way continued Codex threads are. Agent filters, the calendar legend, the comparison table, the demo data and `docs/log-formats.md` cover Pi as well.
+
 ## 0.6.0 - 2026-10-06
 
 ### Added

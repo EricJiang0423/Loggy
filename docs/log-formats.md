@@ -1,6 +1,6 @@
 # Log formats
 
-What Loggy reads and how. Neither tool documents these files, and both change them between versions, so the parsers ignore unknown record types and fields. The notes below come from Claude Code 2.1.156 to 2.1.288 and Codex CLI 0.142 to 0.159.
+What Loggy reads and how. Claude Code and Codex do not document their files and both change them between versions, so those parsers ignore unknown record types and fields; Pi does document its format, and its parser follows that document. The notes below come from Claude Code 2.1.156 to 2.1.288, Codex CLI 0.142 to 0.159 and Pi 0.99.
 
 ## Claude Code
 
@@ -85,6 +85,41 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 - `response_item` messages with role `user` include injected context such as environment and AGENTS.md text. Real user input comes from `UserMessage` items, or `user_message` in older versions.
 - Start and end events don't always pair up, because of forks, resumes and interrupted runs. A missing `task_complete` does not by itself mean the session is still running. Loggy also checks how recently the file changed.
 - Waiting-for-approval events are not persisted.
+
+## Pi
+
+Pi documents this format in `docs/session-format.md` of [earendil-works/pi](https://github.com/earendil-works/pi); the parser follows that document and ignores record types it does not know.
+
+**Location**
+
+- `~/.pi/agent/sessions/--<encoded-cwd>/<timestamp>_<sessionId>.jsonl`. `$PI_CODING_AGENT_DIR` moves the whole agent directory and `$PI_CODING_AGENT_SESSION_DIR` (or `--session-dir`) the session directory.
+- The directory name replaces every non-alphanumeric character of the cwd with `-`, the same scheme Claude Code uses. Loggy reads the `cwd` of the header record instead.
+
+**Records**: one JSON object per line, all of them a tree of entries linked by `id` / `parentId`.
+
+| type | used for |
+|---|---|
+| `session` | the header line: `id`, `cwd`, `version`, and `parentSession` for a session made by `/fork` or `/clone` |
+| `message` | `role` is `user` (human input), `assistant` (`model`, `provider`, `usage`, `stopReason`, `text` / `thinking` / `toolCall` blocks), `toolResult` (`toolCallId`, `toolName`, `isError`, `details`), or `system` / `custom` (prompt state, not conversation) |
+| `model_change`, `thinking_level_change` | the selected model |
+| `compaction` | context compaction, `tokensBefore` |
+| `session_info` | `name`, the title set by `/name`; the last one wins |
+| `branch_summary` | `/tree` switched away from a branch; the branch stays in the file |
+| `usage` | model-attributed usage outside the conversation, e.g. `kind: "cache_warm"` |
+| `context_edit`, `label`, `custom`, `custom_message` | ignored |
+
+**Quirks**
+
+- `usage` is per request, not cumulative, so nothing has to be de-duplicated. `totalTokens` is the context of that request and `cost` is what Pi itself paid; Loggy keeps its own price table so all agents stay comparable.
+- `stopReason` decides how a turn ends: `stop` is a finished reply, `toolUse` leaves the turn open, `aborted` is the user pressing escape, and `error` is a failed request (rate limit, connection). An `error` ends the turn unfinished, the way a Claude API error does.
+- A `/fork` or `/clone` session writes a new file whose header points at the parent's file, so both files are shown as one session, the way continued Codex threads are.
+- Entries form a tree: `/tree` leaves the abandoned branch in the file and Loggy reads entries in file order, so a session that branched shows both paths.
+- Pi writes no git metadata, so Loggy falls back to the text around the command:
+  - a commit is a `git commit` call whose output starts with `[branch sha] message`; the message is taken from `-m`;
+  - a push counts when `git push` printed that it reached the remote;
+  - the branch is read from the repository on disk, so it is the branch that is checked out now, not the one the session ran on.
+- `edit` results carry `details.diff`, which gives the added and removed lines. `write` has no diff, so the line count comes from the body in the call.
+- Files changed by a shell command are not visible; Claude Code reports those, Pi does not.
 
 ## Derived values
 

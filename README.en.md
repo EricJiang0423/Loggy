@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-Loggy is a local dashboard for your **Claude Code** and **Codex** sessions. It reads the logs both tools already write to disk and shows each session as a bar on a week calendar, with a detail view, a timeline of the conversation, a completion check, and efficiency analytics. You don't need to install hooks, change your config, or put anything in your repositories.
+Loggy is a local dashboard for your **Claude Code**, **Codex** and **Pi** sessions. It reads the logs these tools already write to disk and shows each session as a bar on a week calendar, with a detail view, a timeline of the conversation, a completion check, and efficiency analytics. You don't need to install hooks, change your config, or put anything in your repositories.
 
 ![Week calendar with session detail and timeline](docs/images/calendar-zh.png)
 
@@ -23,7 +23,7 @@ Loggy is a local dashboard for your **Claude Code** and **Codex** sessions. It r
 - **Efficiency.** The page covers:
   - spend, agent working time, the time the agent spent waiting for you, sessions, commits, lines changed, cache hit rate and peak parallel sessions, each compared with the previous period
   - daily charts and an hour × weekday heatmap
-  - a Claude Code vs Codex comparison, a per-project table and the estimated output speed per model
+  - a Claude Code, Codex and Pi comparison, a per-project table and the estimated output speed per model
   - a "worth a look" list of sessions that burned money without output, ran close to the context limit, looped on tools, or ended with uncommitted edits
 - **Projects.** Sessions are grouped by git remote, git root or working folder (Settings). The default, smart grouping, first uses the project you put a thread in in the Codex app, then the remote when it is known (from git, the Codex log or a Claude PR link), and also places sessions whose folder has since been deleted. Codex sessions are titled with the thread name from the Codex app (the latest rename).
 - **Git.** The commit graph of all local branches, each commit colored by the session that made it. Open a commit for its changed files and diff, and for what each turn of that session committed. Search by message, filter by path, and see lines of code per folder over time.
@@ -75,10 +75,11 @@ npm ci && npm run build && npm start
 
 ```
 loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
-      [--claude-dir <dir>]... [--codex-dir <dir>]... [--data-dir <dir>] [--ai-model <id>]
+      [--claude-dir <dir>]... [--codex-dir <dir>]... [--pi-dir <dir>]...
+      [--data-dir <dir>] [--ai-model <id>]
 ```
 
-By default Loggy reads `$CLAUDE_CONFIG_DIR` and `~/.claude/projects`, and `$CODEX_HOME` or `~/.codex/sessions` plus `archived_sessions`. Pass `--claude-dir` / `--codex-dir` more than once to include several accounts.
+By default Loggy reads `$CLAUDE_CONFIG_DIR` and `~/.claude/projects`, `$CODEX_HOME` or `~/.codex/sessions` plus `archived_sessions`, and `$PI_CODING_AGENT_SESSION_DIR` or `sessions` under `$PI_CODING_AGENT_DIR` and `~/.pi/agent`. Pass `--claude-dir` / `--codex-dir` / `--pi-dir` more than once to include several accounts.
 
 ### AI summaries (optional)
 
@@ -109,7 +110,7 @@ Costs are **API-equivalent estimates** from a built-in price table. Subscription
 ```
 ~/.claude/projects/**.jsonl ─┐                       ┌─ /api/sessions (deltas)
 ~/.codex/sessions/**.jsonl ──┼─> worker threads ───> index (memory + ~/.loggy cache) ─┼─ /api/session (detail)
-fs.watch + polling ──────────┘   parse, resume                                        └─ SSE "update" ─> browser
+~/.pi/agent/sessions/** ─────┘   parse, resume                                        └─ SSE "update" ─> browser
 ```
 
 - **Parsing** runs in worker threads, so the UI stays responsive while thousands of files are read. Codex rollouts can be very large, so each line is classified from its first bytes and only the records Loggy needs are JSON-parsed.
@@ -117,6 +118,7 @@ fs.watch + polling ──────────┘   parse, resume            
 - **Log formats.** The notes in [docs/log-formats.md](docs/log-formats.md) cover several real quirks:
   - Claude Code writes one line per content block with the same `usage`, so Loggy de-duplicates by `message.id`.
   - Codex token counters are cumulative and can go backwards.
+  - Pi writes no git metadata, so commits and the branch are read back from the command and the repository.
   - Subagent logs live in their own files.
 - **Privacy.** The server listens on `127.0.0.1` only, rejects foreign `Host` headers, and makes no network requests except the AI summaries and categories you set up. The Git and Instructions pages run read-only git commands (`log`, `show`, `diff`, `ls-tree`, `cat-file`) and never change your repository.
 
