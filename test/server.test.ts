@@ -69,11 +69,15 @@ describe('http api', () => {
 
   test('related sessions share edited files', async () => {
     const { sessions } = (await (await fetch(`${app.url}/api/sessions`)).json()) as any;
-    const s = sessions.find((x: any) => x.agent === 'claude' && !x.isSubagent && x.filesChanged > 0);
-    const r = (await (await fetch(`${app.url}/api/related?id=${encodeURIComponent(s.id)}`)).json()) as any;
-    expect(Array.isArray(r.related)).toBe(true);
-    for (const x of r.related) expect(x.id).not.toBe(s.id);
-    expect(r.related.length).toBeGreaterThan(0); // demo sessions in one project reuse the same file names
+    // Demo sessions in one project reuse the same file names, so some of them are related.
+    let found = 0;
+    for (const s of sessions.filter((x: any) => !x.isSubagent && x.filesChanged > 0)) {
+      const r = (await (await fetch(`${app.url}/api/related?id=${encodeURIComponent(s.id)}`)).json()) as any;
+      expect(Array.isArray(r.related)).toBe(true);
+      for (const x of r.related) expect(x.id).not.toBe(s.id);
+      found += r.related.length;
+    }
+    expect(found).toBeGreaterThan(0);
   });
 
   test('a harness switched off in Settings is dropped from the index, and comes back when switched on', async () => {
