@@ -7,6 +7,7 @@ import {
   type AccState,
   DetailSink,
   addCommit,
+  addCommitRun,
   addFileChange,
   addModel,
   addSpeed,
@@ -21,6 +22,7 @@ import {
   markInterrupted,
   markTurnEnded,
   newState,
+  setKnob,
   oneLine,
   touch,
 } from './acc.js';
@@ -274,6 +276,9 @@ function commandItem(s: AccState, item: Json, ts: number, sink?: DetailSink): vo
   const ok = item.status !== 'failed' && (item.exit_code === 0 || item.exit_code === undefined || item.exit_code === null);
   const out = String(item.aggregated_output ?? item.output ?? '');
   if (ok && /\bgit\b[^\n]*\bcommit\b/.test(cmd)) {
+    // ponytail: the item has no start time; a commit made up to 2 minutes before it finished counts.
+    const ms = typeof item.duration_ms === 'number' ? item.duration_ms : 120_000;
+    addCommitRun(s, ts - ms, ts);
     const m = COMMIT_RE.exec(out);
     if (m) addCommit(s, ts, m[2], sink, m[3]?.trim() || undefined, m[1]);
   }
@@ -292,7 +297,10 @@ export function codexRecord(s: AccState, d: Json, sink?: DetailSink, responses?:
       if (typeof p.id === 'string') s.sessionId = p.id;
       if (typeof p.cwd === 'string') s.cwd = p.cwd;
       if (typeof p.cli_version === 'string') s.version = p.cli_version;
-      if (typeof p.originator === 'string') s.entrypoint = p.originator;
+      if (typeof p.originator === 'string') {
+        s.entrypoint = p.originator;
+        setKnob(s, 'surface', p.originator);
+      }
       if (p.git?.branch) s.branch = p.git.branch;
       if (typeof p.git?.repository_url === 'string') s.repo = p.git.repository_url;
       if (typeof p.forked_from_id === 'string') s.forkedFrom = p.forked_from_id;
@@ -307,6 +315,12 @@ export function codexRecord(s: AccState, d: Json, sink?: DetailSink, responses?:
     }
     case 'turn_context':
       if (typeof p.model === 'string') addModel(s, p.model);
+      setKnob(s, 'permission', typeof p.approval_policy === 'string' ? p.approval_policy : undefined);
+      setKnob(s, 'sandbox', p.sandbox_policy?.type);
+      setKnob(s, 'effort', p.effort ?? p.collaboration_mode?.settings?.reasoning_effort);
+      if (p.collaboration_mode?.mode) setKnob(s, 'plan', p.collaboration_mode.mode === 'plan' ? 'on' : 'off');
+      if (typeof p.multi_agent_version === 'string') setKnob(s, 'multiAgent', p.multi_agent_version === 'disabled' ? 'off' : p.multi_agent_version);
+      setKnob(s, 'personality', p.personality);
       if (!s.cwd && typeof p.cwd === 'string') s.cwd = p.cwd;
       return;
     case 'compacted':

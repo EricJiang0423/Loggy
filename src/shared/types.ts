@@ -1,6 +1,8 @@
 // Types shared by the server and the web UI. Keep this file free of Node imports.
 
-export type Agent = 'claude' | 'codex';
+export type Agent = 'claude' | 'codex' | 'kimi';
+
+export const AGENTS: Agent[] = ['claude', 'codex', 'kimi'];
 
 /** Deterministic outcome of a finished session. */
 export type Outcome = 'done' | 'leftover' | 'abandoned' | 'empty';
@@ -99,6 +101,12 @@ export interface SessionSummary {
   speed?: Record<string, [number, number]>;
   /** Commits made in the session (full or short sha), newest last. */
   commitShas?: string[];
+  /** When `git commit` commands ran ([start, end] ms), to find commits that printed no id. */
+  commitRuns?: [number, number][];
+  /** Harness settings: for each one (permission, effort, model, plan, ...), the number of turns run with each value. */
+  knobs?: Record<string, Record<string, number>>;
+  /** How often each harness setting was changed during the session. */
+  knobSwitches?: Record<string, number>;
   /** Your bookmark, label and note (filled by the server). */
   mark?: SessionMark;
   /** Smart category from the AI classification (filled by the server). */
@@ -168,6 +176,8 @@ export interface TurnDetail {
   ended: boolean;
   /** Taken back by a rewind. */
   rewound?: boolean;
+  /** Harness settings in effect during the turn. */
+  knobs?: Record<string, string>;
 }
 
 export type TimelineKind = 'user' | 'assistant' | 'tool' | 'result' | 'system' | 'question';
@@ -284,6 +294,8 @@ export interface ServerState {
   cacheFile: string;
   generation: number;
   groupBy: 'smart' | 'repo' | 'git' | 'folder';
+  /** Harnesses turned on in Settings. */
+  harnesses: Record<Agent, boolean>;
 }
 
 export interface InstructionFile {

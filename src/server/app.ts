@@ -29,6 +29,7 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
     makeDemoRepos(projectsRoot, exps);
     cfg.claudeDirs = [path.join(root, 'claude')];
     cfg.codexDirs = [path.join(root, 'codex')];
+    cfg.kimiDirs = [path.join(root, 'kimi')];
     cfg.dataDir = ensureDir(path.join(root, 'data'));
     demoTimer = setInterval(() => tickDemo(exps), 4000);
     demoTimer.unref();
@@ -37,8 +38,10 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
   const pool = new Pool(workerUrl);
   const prices = loadPrices(cfg.dataDir);
   if (prices) await pool.broadcast({ kind: 'prices', table: prices });
-  const indexer = new Indexer({ claudeDirs: cfg.claudeDirs, codexDirs: cfg.codexDirs }, pool, cfg.dataDir);
-  indexer.groupBy = readSettings(cfg.dataDir).groupBy ?? 'smart';
+  const indexer = new Indexer({ claudeDirs: cfg.claudeDirs, codexDirs: cfg.codexDirs, kimiDirs: cfg.kimiDirs ?? [] }, pool, cfg.dataDir);
+  const saved = readSettings(cfg.dataDir);
+  indexer.groupBy = saved.groupBy ?? 'smart';
+  indexer.setHarnesses(saved.harnesses ?? {}, false);
   if (cfg.rebuild) indexer.clearCache();
   else indexer.loadCache();
 
@@ -57,6 +60,7 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
   if (!cfg.demo) {
     for (const d of cfg.claudeDirs) log(`  Claude Code logs: ${path.join(d, 'projects')}${fs.existsSync(path.join(d, 'projects')) ? '' : '  (not found)'}`);
     for (const d of cfg.codexDirs) log(`  Codex logs:       ${path.join(d, 'sessions')}${fs.existsSync(path.join(d, 'sessions')) ? '' : '  (not found)'}`);
+    for (const d of cfg.kimiDirs ?? []) if (fs.existsSync(path.join(d, 'sessions'))) log(`  Kimi Code logs:   ${path.join(d, 'sessions')}`);
   }
   log('  Press Ctrl+C to stop.');
 

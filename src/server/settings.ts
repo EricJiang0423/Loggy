@@ -3,19 +3,25 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { SessionMark } from '../shared/types.js';
+import type { Agent, SessionMark } from '../shared/types.js';
 import type { AiSettings } from './ai.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
 
 export interface Settings {
   groupBy?: GroupBy;
   ai?: AiSettings;
+  /** Harnesses turned off in Settings are not indexed. */
+  harnesses?: Partial<Record<Agent, boolean>>;
 }
 
 export function readSettings(dataDir: string): Settings {
   try {
     const s = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'));
-    return { groupBy: GROUP_BY.includes(s.groupBy) ? s.groupBy : undefined, ai: s.ai && typeof s.ai === 'object' ? s.ai : undefined };
+    return {
+      groupBy: GROUP_BY.includes(s.groupBy) ? s.groupBy : undefined,
+      ai: s.ai && typeof s.ai === 'object' ? s.ai : undefined,
+      harnesses: s.harnesses && typeof s.harnesses === 'object' ? s.harnesses : undefined,
+    };
   } catch {
     return {};
   }

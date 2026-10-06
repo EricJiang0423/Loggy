@@ -109,9 +109,19 @@ export function GitPage({ onOpen }: { onOpen: (sessionId: string) => void }) {
   const turns = useMemo(() => {
     if (!sessionDetail || sessionDetail.summary.id !== selSession) return [];
     const m = new Map<number, CommitInfo[]>();
-    for (const c of sessionDetail.commits) if (c.sha) m.set(c.turn, [...(m.get(c.turn) ?? []), c]);
+    const add = (c: CommitInfo) => m.set(c.turn, [...(m.get(c.turn) ?? []), c]);
+    for (const c of sessionDetail.commits) if (c.sha) add(c);
+    // Commits matched by time (a quiet `git commit` prints no id) go to the turn running then.
+    const known = new Set(sessionDetail.commits.map((c) => c.sha.slice(0, 7)));
+    for (const c of commits ?? []) {
+      if (c.session !== selSession || known.has(c.sha.slice(0, 7))) continue;
+      const ts = Date.parse(c.date);
+      const turn = sessionDetail.turns.filter((t) => t.start <= ts).pop()?.idx;
+      if (turn) add({ sha: c.sha, ts, message: c.subject, turn });
+    }
+    for (const list of m.values()) list.sort((a, b) => a.ts - b.ts);
     return [...m].sort((a, b) => a[0] - b[0]).map(([turn, cs]) => ({ turn, prompt: sessionDetail.turns[turn - 1]?.prompt ?? '', commits: cs }));
-  }, [sessionDetail, selSession]);
+  }, [sessionDetail, selSession, commits]);
   const turnOf = useMemo(() => {
     const m = new Map<string, number>();
     for (const x of turns) for (const c of x.commits) m.set(c.sha.slice(0, 7), x.turn);

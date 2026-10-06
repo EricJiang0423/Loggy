@@ -174,3 +174,39 @@ export async function gitLines(root: string, dataDir: string): Promise<{ days: s
   for (const d of dirs) series[d] = shas.map((s) => cache.commits[s]?.[d] ?? 0);
   return { days, shas, series };
 }
+
+const RUN_SLACK_MS = 5_000; // commit dates have one-second precision
+
+/**
+ * Session that made each commit: by the id the commit printed, else by a session in this
+ * repository whose `git commit` command was running at the commit's time (`git commit -q`
+ * prints no id).
+ */
+export function linkCommits(
+  commits: { sha: string; date: string }[],
+  sessions: { id: string; cwd: string; commitShas?: string[]; commitRuns?: [number, number][] }[],
+  root: string,
+): Map<string, string> {
+  const bySha = new Map<string, string>();
+  for (const s of sessions) for (const sha of s.commitShas ?? []) bySha.set(sha.slice(0, 7), s.id);
+  const inRepo = sessions.filter((s) => s.commitRuns?.length && (s.cwd === root || s.cwd.startsWith(root.endsWith(path.sep) ? root : root + path.sep)));
+  const out = new Map<string, string>();
+  for (const c of commits) {
+    const hit = bySha.get(c.sha.slice(0, 7));
+    if (hit) {
+      out.set(c.sha, hit);
+      continue;
+    }
+    const t = Date.parse(c.date);
+    let best: { id: string; d: number } | undefined;
+    for (const s of inRepo) {
+      for (const [a, b] of s.commitRuns!) {
+        if (t < a - RUN_SLACK_MS || t > b + RUN_SLACK_MS) continue;
+        const d = Math.abs(t - (a + b) / 2);
+        if (!best || d < best.d) best = { id: s.id, d };
+      }
+    }
+    if (best) out.set(c.sha, best.id);
+  }
+  return out;
+}

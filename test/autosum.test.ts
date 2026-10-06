@@ -57,7 +57,7 @@ describe('automatic summaries end to end', () => {
         if (system.includes('STEP 1')) return reply(JSON.stringify({ projects: [] }));
         if (system.includes('STEP 2')) return reply(JSON.stringify({ categories: [{ name: 'Apps', description: 'app work' }], projects: [] }));
         if (system.includes('STEP 3')) return reply(JSON.stringify({ sessions: [] }));
-        const summary = { title: 'Auto title', bullets: ['did a thing'], decisions: [], unverified: ['not run in the browser'], concerns: [], openQuestions: [], nextSteps: ['check the page'], requests: [], type: 'implementation', workComplete: false };
+        const summary = { title: '自动标题', bullets: ['完成了一件事'], decisions: [], unverified: ['没有在浏览器里看过'], concerns: [], openQuestions: [], nextSteps: ['检查一下页面'], requests: [], type: 'implementation', workComplete: false };
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ id: 'x', object: 'chat.completion', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(summary) }, finish_reason: 'stop' }] }));
       });
@@ -88,7 +88,7 @@ describe('automatic summaries end to end', () => {
     const { sessions } = (await (await fetch(`${app.url}/api/sessions`)).json()) as any;
     const withAi = sessions.filter((s: any) => s.ai);
     expect(withAi.length).toBe(res.done);
-    expect(withAi[0].ai).toMatchObject({ title: 'Auto title', next: ['check the page'], type: 'implementation' });
+    expect(withAi[0].ai).toMatchObject({ title: '自动标题', next: ['检查一下页面'], type: 'implementation' });
     // the run also built the smart categories; every recent session falls back to its project's
     const state = (await (await fetch(`${app.url}/api/state`)).json()) as any;
     expect(state.ai.categories).toEqual([{ name: 'Apps', description: 'app work' }]);

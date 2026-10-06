@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Theme } from '../App';
 import { api, type AiForm } from '../api';
-import { Card, Seg } from '../components/common';
+import { agentKey, Card, Seg } from '../components/common';
 import { duration, int, relative } from '../format';
 import { useI18n, type Lang } from '../i18n';
 import { refreshServer, refreshSessions, useStore } from '../store';
@@ -83,7 +83,20 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
           <tbody>
             {server?.sources.map((s) => (
               <tr key={s.dir}>
-                <td>{t(s.agent === 'claude' ? 'agent.claude' : 'agent.codex')}</td>
+                <td>
+                  <label className="chk">
+                    <input
+                      type="checkbox"
+                      checked={server.harnesses?.[s.agent] !== false}
+                      onChange={async (e) => {
+                        await api.setHarness(s.agent, e.target.checked);
+                        await refreshServer();
+                        await refreshSessions();
+                      }}
+                    />
+                    {t(agentKey(s.agent))}
+                  </label>
+                </td>
                 <td className="mono">
                   {s.dir} {!s.exists && <span className="err">({t('set.missing')})</span>}
                 </td>
@@ -93,6 +106,9 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
             ))}
           </tbody>
         </table>
+        <p className="muted" style={{ fontSize: 12 }}>
+          {t('set.harnessHelp')}
+        </p>
       </Card>
       <Card title={t('set.index')}>
         <p>{t('set.indexInfo', { n: int(count, lang), s: progress?.lastDurationMs !== undefined ? duration(Math.max(1000, progress.lastDurationMs), lang) : '–' })}</p>

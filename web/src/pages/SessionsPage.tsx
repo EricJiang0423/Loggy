@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
 import { api } from '../api';
 import { Calendar } from '../components/Calendar';
-import { LABELS, Seg, useDebounced, usePersisted } from '../components/common';
+import { HarnessFilter, knobKey, LABELS, Seg, useDebounced, usePersisted } from '../components/common';
 import { DetailPanel } from '../components/DetailPanel';
 import { SessionList } from '../components/SessionList';
 import { useI18n, type Key } from '../i18n';
@@ -11,7 +11,6 @@ import type { ColorDim } from '../colors';
 
 export type OutcomeFilter = 'all' | 'live' | 'done' | 'leftover' | 'abandoned';
 type Sort = 'recent' | 'start' | 'cost' | 'duration' | 'changes';
-type AgentFilter = 'all' | 'claude' | 'codex';
 
 
 const isLive = (s: SessionSummary) => s.status === 'running' || s.status === 'stalled' || s.status === 'needs_input';
@@ -21,7 +20,9 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
   const list = useStore((s) => s.list);
   const loaded = useStore((s) => s.loaded);
   const [view, setView] = usePersisted<'list' | 'calendar'>('loggy.view', 'calendar');
-  const [agent, setAgent] = usePersisted<AgentFilter>('loggy.agent', 'all');
+  const [harnessList, setHarnessList] = usePersisted<string>('loggy.harnesses', '');
+  const harnesses = useMemo(() => harnessList.split(',').filter(Boolean), [harnessList]);
+  const [knob, setKnob] = usePersisted<string>('loggy.knob', '');
   const [project, setProject] = usePersisted<string>('loggy.project', '');
   const [outcome, setOutcome] = useState<OutcomeFilter>('all');
   const [subagents, setSubagents] = usePersisted<boolean>('loggy.subagents', false);
@@ -48,6 +49,15 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
     return () => ac.abort();
   }, [q, list.length]);
 
+  const present = useMemo(() => [...new Set(list.map((s) => s.agent))].sort((a, b) => ['claude', 'codex', 'kimi'].indexOf(a) - ['claude', 'codex', 'kimi'].indexOf(b)), [list]);
+  // Every harness setting seen (e.g. permission=plan), most used first.
+  const knobOptions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of list) for (const [k, vals] of Object.entries(s.knobs ?? {})) for (const [v, n] of Object.entries(vals)) if (k !== 'model') m.set(`${k}=${v}`, (m.get(`${k}=${v}`) ?? 0) + n);
+    return [...m].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [list]);
+  const [knobName, knobValue] = knob.split('=');
+
   const projects = useMemo(() => {
     const m = new Map<string, { path: string; name: string; last: number; n: number }>();
     for (const s of list) {
@@ -65,14 +75,15 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
       list.filter(
         (s) =>
           (subagents || !s.isSubagent) &&
-          (agent === 'all' || s.agent === agent) &&
+          (!harnesses.length || harnesses.includes(s.agent)) &&
+          (!knob || (s.knobs?.[knobName]?.[knobValue] ?? 0) > 0) &&
           (!project || s.projectPath === project) &&
           (!withChanges || s.filesChanged > 0) &&
           (!starred || s.mark?.star) &&
           (!label || (label === 'none' ? !s.mark?.label : s.mark?.label === label)) &&
           (!hits || hits.has(s.id)),
       ),
-    [list, subagents, agent, project, withChanges, starred, label, hits],
+    [list, subagents, harnesses, knob, knobName, knobValue, project, withChanges, starred, label, hits],
   );
 
   const counts = useMemo(() => {
@@ -127,11 +138,7 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
         </div>
         {hits && <span className="muted">{t('sessions.searchResults', { n: base.length })}</span>}
         <span className="spacer" />
-        <select className="sel" value={agent} onChange={(e) => setAgent(e.target.value as AgentFilter)} aria-label={t('agent.all')}>
-          <option value="all">{t('agent.all')}</option>
-          <option value="claude">{t('agent.claude')}</option>
-          <option value="codex">{t('agent.codex')}</option>
-        </select>
+        <HarnessFilter value={harnesses} onChange={(v) => setHarnessList(v.join(','))} present={present} />
         <select className="sel" value={project} onChange={(e) => setProject(e.target.value)} aria-label={t('sessions.allProjects')}>
           <option value="">{t('sessions.allProjects')}</option>
           {projects.map((p) => (
@@ -152,7 +159,7 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
         <details className="menu">
           <summary>
             {t('sessions.options')}
-            {subagents || withChanges || starred || label ? ` · ${Number(subagents) + Number(withChanges) + Number(starred) + Number(!!label)}` : ''}
+            {subagents || withChanges || starred || label || knob ? ` · ${Number(subagents) + Number(withChanges) + Number(starred) + Number(!!label) + Number(!!knob)}` : ''}
           </summary>
           <div className="menu-body">
             <label className="chk">
@@ -173,6 +180,14 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
               {LABELS.map((l) => (
                 <option key={l} value={l}>
                   {t(`mark.${l}` as Key)}
+                </option>
+              ))}
+            </select>
+            <select className="sel" value={knob} onChange={(e) => setKnob(e.target.value)} aria-label={t('sessions.anyKnob')}>
+              <option value="">{t('sessions.anyKnob')}</option>
+              {knobOptions.map(([k]) => (
+                <option key={k} value={k}>
+                  {t(knobKey(k.split('=')[0]))}: {k.split('=').slice(1).join('=')}
                 </option>
               ))}
             </select>

@@ -52,7 +52,7 @@ const RULES: Rule[] = [
   { match: /glm-?5\.?[23]/, price: { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite5m: 1.4, cacheWrite1h: 1.4 } },
   { match: /deepseek.*pro/, price: { input: 1.32, output: 3.96, cacheRead: 0.044, cacheWrite5m: 1.32, cacheWrite1h: 1.32 } }, // peak rate; off-peak is half
   { match: /deepseek/, price: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite5m: 0.3, cacheWrite1h: 0.3 } },
-  { match: /kimi[-/]?k3/, price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3, cacheWrite1h: 6 } }, // platform.kimi.ai
+  { match: /kimi[-/]?k3|(^|\/)k3(-|$)/, price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3, cacheWrite1h: 6 } }, // platform.kimi.ai
   { match: /mimo.*pro-ultraspeed/, price: { input: 4.35, output: 8.7, cacheRead: 0.036, cacheWrite5m: 4.35, cacheWrite1h: 4.35 } }, // mimo.mi.com
   { match: /mimo.*pro/, price: { input: 0.435, output: 0.87, cacheRead: 0.0036, cacheWrite5m: 0.435, cacheWrite1h: 0.435 } },
   { match: /mimo.*flash/, price: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite5m: 0.14, cacheWrite1h: 0.14 } },

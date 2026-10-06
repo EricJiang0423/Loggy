@@ -97,6 +97,17 @@ describe('claude edge cases', () => {
     expect(summary.costUSD).toBeCloseTo(0.00174, 8);
   });
 
+  test('a quiet git commit prints no id: the time it ran is kept to match the commit later', () => {
+    const f = writeLines('quiet-commit.jsonl', [
+      { ...base, type: 'user', uuid: 'u1', timestamp: '2026-10-01T10:00:00Z', promptId: 'p1', origin: { kind: 'human' }, message: { role: 'user', content: 'commit it' } },
+      { ...base, type: 'assistant', uuid: 'a1', timestamp: '2026-10-01T10:00:05Z', message: { id: 'm1', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'git add -A && git commit -q -m "Fix it"' } }], stop_reason: 'tool_use' } },
+      { ...base, type: 'user', uuid: 'u2', timestamp: '2026-10-01T10:00:08Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: '' }] }, toolUseResult: { stdout: '', stderr: '' } },
+    ]);
+    const { summary } = summarizeFile(f, 'claude');
+    expect(summary.commits).toBe(0);
+    expect(summary.commitRuns).toEqual([[Date.parse('2026-10-01T10:00:05Z'), Date.parse('2026-10-01T10:00:08Z')]]);
+  });
+
   test('meta records, tool results and interrupts do not start turns', () => {
     const f = writeLines('meta.jsonl', [
       { ...base, type: 'user', uuid: 'u1', timestamp: '2026-10-01T10:00:00Z', promptId: 'p1', message: { role: 'user', content: 'do it' } },
@@ -498,5 +509,50 @@ describe('0.6 summary data', () => {
       { timestamp: ts(12), type: 'event_msg', payload: { type: 'task_complete', turn_id: 't1' } },
     ]);
     expect(summarizeFile(f, 'codex').summary.speed?.['gpt-6-sol']).toEqual([300, 6_000]); // 200 tok / 4 s + 100 tok / 2 s
+  });
+});
+
+describe('harness settings', () => {
+  const base = { cwd: '/w/p', sessionId: 's9', version: '2.1.280', gitBranch: 'main', isSidechain: false, entrypoint: 'cli' };
+  test('Claude Code: permission mode, plan mode, effort and speed per turn, and switches', () => {
+    const user = (u: string, ts: string, mode: string) => ({ ...base, type: 'user', uuid: u, timestamp: ts, promptId: u, origin: { kind: 'human' }, permissionMode: mode, message: { role: 'user', content: `do ${u}` } });
+    const reply = (u: string, ts: string, effort: string, speed = 'standard') => ({ ...base, type: 'assistant', uuid: u, timestamp: ts, effort, message: { id: u, model: 'claude-opus-5-5', content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1, speed } } });
+    const f = writeLines('knobs.jsonl', [
+      user('u1', '2026-10-01T10:00:00Z', 'plan'),
+      reply('a1', '2026-10-01T10:00:05Z', 'high'),
+      user('u2', '2026-10-01T10:01:00Z', 'acceptEdits'),
+      reply('a2', '2026-10-01T10:01:05Z', 'high', 'fast'),
+      { ...base, type: 'permission-mode', permissionMode: 'bypassPermissions', sessionId: 's9' },
+      user('u3', '2026-10-01T10:02:00Z', 'bypassPermissions'),
+      reply('a3', '2026-10-01T10:02:05Z', 'max'),
+    ]);
+    const { summary: s } = summarizeFile(f, 'claude');
+    expect(s.knobs).toMatchObject({
+      permission: { plan: 1, acceptEdits: 1, bypassPermissions: 1 },
+      plan: { on: 1, off: 2 },
+      effort: { high: 2, max: 1 },
+      speed: { standard: 2, fast: 1 },
+      surface: { cli: 3 },
+    });
+    expect(s.knobSwitches).toMatchObject({ permission: 2, effort: 1, plan: 1 });
+    expect(detailFile(f, 'claude').turns.map((t) => t.knobs?.permission)).toEqual(['plan', 'acceptEdits', 'bypassPermissions']);
+  });
+
+  test('Codex: approval policy, sandbox, effort and plan mode from each turn context', () => {
+    const ctx = (effort: string, mode: string) => ({ timestamp: '2026-10-01T10:00:01Z', type: 'turn_context', payload: { model: 'gpt-5.5', approval_policy: 'never', sandbox_policy: { type: 'danger-full-access' }, effort, collaboration_mode: { mode }, multi_agent_version: 'v2' } });
+    const turn = (n: number, effort: string, mode: string) => [
+      { timestamp: `2026-10-01T10:0${n}:00Z`, type: 'event_msg', payload: { type: 'task_started', turn_id: `t${n}` } },
+      ctx(effort, mode),
+      { timestamp: `2026-10-01T10:0${n}:02Z`, type: 'event_msg', payload: { type: 'user_message', message: `step ${n}` } },
+      { timestamp: `2026-10-01T10:0${n}:09Z`, type: 'event_msg', payload: { type: 'task_complete', turn_id: `t${n}`, last_agent_message: 'done' } },
+    ];
+    const f = writeLines('rollout-2026-10-01T10-00-00-0199a0b0-0000-7000-8000-00000000k0b5.jsonl', [
+      { timestamp: '2026-10-01T10:00:00Z', type: 'session_meta', payload: { id: 'k0b5', cwd: '/w/p', originator: 'Codex Desktop' } },
+      ...turn(1, 'high', 'plan'),
+      ...turn(2, 'low', 'default'),
+    ]);
+    const { summary: s } = summarizeFile(f, 'codex');
+    expect(s.knobs).toMatchObject({ permission: { never: 2 }, sandbox: { 'danger-full-access': 2 }, effort: { high: 1, low: 1 }, plan: { on: 1, off: 1 }, multiAgent: { v2: 2 }, surface: { 'Codex Desktop': 2 } });
+    expect(s.knobSwitches).toMatchObject({ effort: 1, plan: 1 });
   });
 });

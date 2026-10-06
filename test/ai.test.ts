@@ -87,8 +87,8 @@ describe('company gateways', () => {
 
   test('OpenAI-compatible endpoint with a bearer key and extra headers', async () => {
     const r = resolveAi({ provider: 'openai', baseURL: `${base}/v1`, model: 'corp-large', apiKey: 'sk-corp', headers: { 'X-Team': 'quant' } }, {}, 'm')!;
-    const s = await summarizeWithAi(dataDir, r, detail, 'zh-CN');
-    expect(s).toMatchObject({ title: 'Calendar view', model: 'corp-large', lang: 'zh-CN' });
+    const s = await summarizeWithAi(dataDir, r, detail, 'en');
+    expect(s).toMatchObject({ title: 'Calendar view', model: 'corp-large', lang: 'en' });
     const req = seen.at(-1)!;
     expect(req.url).toBe('/v1/chat/completions');
     expect(req.headers.authorization).toBe('Bearer sk-corp');

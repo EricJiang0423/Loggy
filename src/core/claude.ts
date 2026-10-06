@@ -6,6 +6,7 @@ import {
   type AccState,
   DetailSink,
   addCommit,
+  addCommitRun,
   addFileChange,
   addModel,
   addSpeed,
@@ -20,6 +21,7 @@ import {
   markInterrupted,
   markTurnEnded,
   newState,
+  setKnob,
   oneLine,
   touch,
 } from './acc.js';
@@ -55,6 +57,8 @@ interface ClaudeX {
   toolOrder: string[];
   /** tool_use id -> commit message guess (bounded via toolOrder). */
   cmd: Record<string, string>;
+  /** tool_use id -> start of a `git commit` command (bounded via toolOrder). */
+  commitAt?: Record<string, number>;
   lastPromptId?: string;
   /** Time of the previous record, for output speed. */
   lastTs?: number;
@@ -97,6 +101,7 @@ function rememberTool(x: ClaudeX, id: string, name: string): void {
       const old = x.toolOrder.shift()!;
       delete x.tools[old];
       delete x.cmd[old];
+      if (x.commitAt) delete x.commitAt[old];
     }
   }
   x.tools[id] = name;
@@ -154,7 +159,12 @@ export function claudeRecord(s: AccState, d: Json, sink?: DetailSink, responses?
   if (typeof d.cwd === 'string' && d.cwd && !s.cwd) s.cwd = d.cwd;
   if (typeof d.gitBranch === 'string' && d.gitBranch && d.gitBranch !== 'HEAD') s.branch = d.gitBranch;
   if (typeof d.version === 'string') s.version = d.version;
-  if (typeof d.entrypoint === 'string' && !s.entrypoint) s.entrypoint = d.entrypoint;
+  if (typeof d.entrypoint === 'string' && !s.entrypoint) {
+    s.entrypoint = d.entrypoint;
+    setKnob(s, 'surface', d.entrypoint);
+  }
+  // Inputs and mode switches carry the permission mode; plan mode is one of them.
+  if (typeof d.permissionMode === 'string' && type !== 'user') knobsFromMode(s, d.permissionMode);
 
   switch (type) {
     case 'user':
@@ -205,7 +215,18 @@ export function claudeRecord(s: AccState, d: Json, sink?: DetailSink, responses?
   }
 }
 
+function knobsFromMode(s: AccState, mode: string): void {
+  setKnob(s, 'permission', mode);
+  setKnob(s, 'plan', mode === 'plan' ? 'on' : 'off');
+}
+
 function userRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: DetailSink): void {
+  // After a new turn starts (below) the mode belongs to it; on other records it applies as is.
+  userRecordInner(s, x, d, ts, sink);
+  if (typeof d.permissionMode === 'string') knobsFromMode(s, d.permissionMode);
+}
+
+function userRecordInner(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: DetailSink): void {
   const msg = d.message ?? {};
   const content = msg.content;
   if (d.toolUseResult !== undefined || hasToolResult(content)) {
@@ -260,6 +281,8 @@ function toolResults(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: Detail
     if (!b || b.type !== 'tool_result') continue;
     toolName = x.tools[b.tool_use_id] ?? '';
     if (b.is_error) addToolError(s);
+    const commitAt = x.commitAt?.[b.tool_use_id];
+    if (commitAt && !b.is_error) addCommitRun(s, commitAt, ts);
     if (sink) sink.item(ts, 'result', resultText(b), s.turns.length, { tool: toolName, isError: !!b.is_error }, 600);
   }
   s.pendingTool = false;
@@ -331,6 +354,9 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
     return;
   }
   if (model && model !== '<synthetic>') addModel(s, model);
+  // Reasoning effort of this reply (a per-turn override wins) and fast mode.
+  setKnob(s, 'effort', d.perTurnEffort ?? d.effort);
+  setKnob(s, 'speed', msg.usage?.speed);
   if (s.isSubagent && !s.turns.length) beginTurn(s, ts, '(subagent)');
 
   const u = msg.usage;
@@ -374,6 +400,7 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
       addTool(s);
       const input = b.input ?? {};
       if (name === 'Bash' && typeof input.command === 'string' && /\bgit\b[^\n]*\bcommit\b/.test(input.command)) {
+        (x.commitAt ??= {})[b.id] = ts;
         const m = commitMessageFrom(input.command);
         if (m) x.cmd[b.id] = m.slice(0, 200);
       }

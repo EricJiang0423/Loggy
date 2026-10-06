@@ -1,6 +1,6 @@
 // `loggy` command line entry.
 
-import { DEFAULT_AI_MODEL, DEFAULT_PORT, defaultClaudeDirs, defaultCodexDirs, defaultDataDir, type Config } from './config.js';
+import { DEFAULT_AI_MODEL, DEFAULT_PORT, defaultClaudeDirs, defaultCodexDirs, defaultKimiDirs, defaultDataDir, type Config } from './config.js';
 
 declare const __LOGGY_VERSION__: string;
 const VERSION = typeof __LOGGY_VERSION__ === 'string' ? __LOGGY_VERSION__ : '0.0.0-dev';
@@ -17,6 +17,8 @@ Options
   --claude-dir <dir>         Claude config dir containing projects/ (repeatable;
                              default $CLAUDE_CONFIG_DIR and ~/.claude)
   --codex-dir <dir>          Codex home containing sessions/ (repeatable; default $CODEX_HOME or ~/.codex)
+  --kimi-dir <dir>           Kimi Code home containing sessions/ (repeatable;
+                             default $KIMI_CODE_HOME or ~/.kimi-code)
   --data-dir <dir>           where Loggy keeps its cache (default $LOGGY_HOME or ~/.loggy)
   --ai-model <id>            model for optional AI summaries (default ${DEFAULT_AI_MODEL})
   --rebuild                  ignore the cache and parse every log again
@@ -37,6 +39,7 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
     rebuild: false,
     claudeDirs: [],
     codexDirs: [],
+    kimiDirs: [],
     dataDir: defaultDataDir(),
     aiModel: process.env.LOGGY_AI_MODEL ?? DEFAULT_AI_MODEL,
     version: VERSION,
@@ -66,6 +69,9 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
       case '--codex-dir':
         cfg.codexDirs.push(next());
         break;
+      case '--kimi-dir':
+        cfg.kimiDirs!.push(next());
+        break;
       case '--data-dir':
         cfg.dataDir = next();
         break;
@@ -93,6 +99,7 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
   if (!Number.isInteger(cfg.port) || cfg.port < 0 || cfg.port > 65535) throw new Error('Invalid --port');
   if (!cfg.claudeDirs.length) cfg.claudeDirs = defaultClaudeDirs();
   if (!cfg.codexDirs.length) cfg.codexDirs = defaultCodexDirs();
+  if (!cfg.kimiDirs?.length) cfg.kimiDirs = defaultKimiDirs();
   return cfg;
 }
 

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
-import { gitLines, gitLog, gitShow } from '../src/server/git';
+import { gitLines, gitLog, gitShow, linkCommits } from '../src/server/git';
 import { graphLayout } from '../web/src/gitGraph';
 
 let repo = '';
@@ -102,4 +102,22 @@ test('graph lanes: a branch splits off and the history joins again', () => {
   ]);
   // a parent outside the list leaves no dangling lane
   expect(graphLayout([{ sha: 'x', parents: ['gone'] }, { sha: 'y', parents: [] }]).rows.map((r) => r.lane)).toEqual([0, 0]);
+});
+
+test('commits find their session by printed id, else by when a git commit ran in that repository', () => {
+  const at = (iso: string) => Date.parse(iso);
+  const commits = [
+    { sha: 'aaaaaaa1111', date: '2026-10-01T10:00:06+08:00' },
+    { sha: 'bbbbbbb2222', date: '2026-10-01T02:00:07Z' }, // same moment as the run below, no printed id
+    { sha: 'ccccccc3333', date: '2026-10-01T03:00:00Z' }, // nothing ran then
+  ];
+  const sessions = [
+    { id: 'claude:printed', cwd: '/w/other', commitShas: ['aaaaaaa'] },
+    { id: 'claude:quiet', cwd: '/w/repo/sub', commitRuns: [[at('2026-10-01T02:00:05Z'), at('2026-10-01T02:00:08Z')]] as [number, number][] },
+    { id: 'claude:elsewhere', cwd: '/w/repo2', commitRuns: [[at('2026-10-01T02:00:05Z'), at('2026-10-01T02:00:08Z')]] as [number, number][] },
+  ];
+  const owner = linkCommits(commits, sessions, '/w/repo');
+  expect(owner.get('aaaaaaa1111')).toBe('claude:printed');
+  expect(owner.get('bbbbbbb2222')).toBe('claude:quiet');
+  expect(owner.has('ccccccc3333')).toBe(false);
 });

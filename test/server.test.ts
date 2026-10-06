@@ -21,6 +21,7 @@ beforeAll(async () => {
       rebuild: true,
       claudeDirs: [path.join(dir, 'claude')],
       codexDirs: [path.join(dir, 'codex')],
+      kimiDirs: [path.join(dir, 'kimi')],
       dataDir: path.join(dir, 'data'),
       aiModel: DEFAULT_AI_MODEL,
       version: 'test',
@@ -68,11 +69,28 @@ describe('http api', () => {
 
   test('related sessions share edited files', async () => {
     const { sessions } = (await (await fetch(`${app.url}/api/sessions`)).json()) as any;
-    const s = sessions.find((x: any) => !x.isSubagent && x.filesChanged > 0);
+    const s = sessions.find((x: any) => x.agent === 'claude' && !x.isSubagent && x.filesChanged > 0);
     const r = (await (await fetch(`${app.url}/api/related?id=${encodeURIComponent(s.id)}`)).json()) as any;
     expect(Array.isArray(r.related)).toBe(true);
     for (const x of r.related) expect(x.id).not.toBe(s.id);
     expect(r.related.length).toBeGreaterThan(0); // demo sessions in one project reuse the same file names
+  });
+
+  test('a harness switched off in Settings is dropped from the index, and comes back when switched on', async () => {
+    const kimi = async () => ((await (await fetch(`${app.url}/api/sessions`)).json()) as any).sessions.filter((x: any) => x.agent === 'kimi').length;
+    const waitFor = async (ok: () => Promise<boolean>) => {
+      for (let i = 0; i < 100 && !(await ok()); i++) await new Promise((r) => setTimeout(r, 50));
+    };
+    const before = await kimi();
+    expect(before).toBeGreaterThan(0);
+    const off = (await (await fetch(`${app.url}/api/settings?harness=kimi&on=0`, { method: 'POST' })).json()) as any;
+    expect(off.harnesses).toMatchObject({ claude: true, codex: true, kimi: false });
+    await waitFor(async () => (await kimi()) === 0);
+    expect(await kimi()).toBe(0);
+    await fetch(`${app.url}/api/settings?harness=kimi&on=1`, { method: 'POST' });
+    await waitFor(async () => (await kimi()) === before);
+    expect(await kimi()).toBe(before);
+    expect((await fetch(`${app.url}/api/settings?harness=other&on=0`, { method: 'POST' })).status).toBe(400);
   });
 
   test('bookmarks, labels and notes are kept per session', async () => {

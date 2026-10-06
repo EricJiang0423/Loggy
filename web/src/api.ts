@@ -76,6 +76,7 @@ export const api = {
     ),
   summarize: (id: string, lang: string) => post<{ ai: SessionDetail['ai'] }>(`api/summarize?id=${encodeURIComponent(id)}&lang=${lang}`),
   setGroupBy: (groupBy: ServerState['groupBy']) => post<ServerState>(`api/settings?groupBy=${groupBy}`),
+  setHarness: (agent: string, on: boolean) => post<ServerState>(`api/settings?harness=${agent}&on=${on ? 1 : 0}`),
   saveAi: (body: AiForm) => postJson<ServerState>('api/settings/ai', body),
   testAi: (body: AiForm) => postJson<{ ok: boolean; model: string; ms: number; reply?: string; error?: string }>('api/ai/test', body),
   classify: () => postJson<unknown>('api/ai/classify', {}),

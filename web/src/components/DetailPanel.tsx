@@ -4,7 +4,7 @@ import { api } from '../api';
 import { compact, dateTime, duration, money, pct, relative, shortPath, time } from '../format';
 import { useI18n, type Key } from '../i18n';
 import { refreshSessions, useStore } from '../store';
-import { AgentBadge, Card, CopyButton, LABELS, Star, StatusBadge } from './common';
+import { AgentBadge, Card, CopyButton, KNOBS, knobKey, LABELS, Star, StatusBadge } from './common';
 import { Timeline } from './Timeline';
 
 const cache = new Map<string, SessionDetail>();
@@ -132,7 +132,8 @@ function Header({
   const { t, lang } = useI18n();
   const now = useStore((x) => x.now);
   const tokens = s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite;
-  const resume = s.isSubagent ? undefined : s.agent === 'claude' ? `cd ${quote(s.cwd)} && claude --resume ${s.sessionId}` : `cd ${quote(s.cwd)} && codex resume ${s.sessionId}`;
+  const tool = s.agent === 'claude' ? 'claude --resume' : s.agent === 'kimi' ? 'kimi --resume' : 'codex resume';
+  const resume = s.isSubagent ? undefined : `cd ${quote(s.cwd)} && ${tool} ${s.sessionId}`;
   const list = useStore((x) => x.list);
   const next = useMemo(() => list.filter((x) => x.continues === s.id), [list, s.id]);
   const split = splitReasons(s, detail).map(([k, n]) => t(k, { n })).join(' · ');
@@ -145,7 +146,7 @@ function Header({
         {s.category && <span className="badge">{s.category}</span>}
         {(s.refusals ?? 0) > 0 && <span className="badge refused">{t('detail.refusals', { n: s.refusals! })}</span>}
         <span className="chip" title={s.sessionId}>
-          {s.sessionId.slice(0, 8)}
+          {s.sessionId.replace(/^session_/, '').slice(0, 8)}
         </span>
         {s.isSubagent && s.parentId && (
           <button className="btn" onClick={() => onSelect(s.parentId!)}>
@@ -364,6 +365,7 @@ function Body({ s, d, onAi, onSelect }: { s: SessionSummary; d: SessionDetail; o
       </Card>
       <Requests d={d} />
       <Efficiency s={s} />
+      <Harness s={s} d={d} />
       <Notes s={s} />
       <Related id={s.id} onSelect={onSelect} />
       <Turns d={d} />
@@ -498,6 +500,57 @@ function Requests({ d }: { d: SessionDetail }) {
           </div>
         );
       })}
+    </Card>
+  );
+}
+
+/** Harness settings the session ran with, and when they were switched. */
+function Harness({ s, d }: { s: SessionSummary; d: SessionDetail }) {
+  const { t, lang } = useI18n();
+  // A mode that stayed off the whole session says nothing.
+  const knobs = KNOBS.filter((k) => Object.keys(s.knobs?.[k] ?? {}).some((v) => v !== 'off'));
+  if (!knobs.length) return null;
+  const changes: { turn: number; ts: number; knob: string; from: string; to: string }[] = [];
+  let prev: Record<string, string> = {};
+  for (const turn of d.turns) {
+    for (const [k, v] of Object.entries(turn.knobs ?? {})) if (prev[k] !== undefined && prev[k] !== v) changes.push({ turn: turn.idx, ts: turn.start, knob: k, from: prev[k], to: v });
+    prev = { ...prev, ...turn.knobs };
+  }
+  return (
+    <Card title={t('knobs.title')}>
+      <table className="grid">
+        <tbody>
+          {knobs.map((k) => (
+            <tr key={k}>
+              <td className="nw muted">{t(knobKey(k))}</td>
+              <td>
+                {Object.entries(s.knobs![k])
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([v, n]) => (
+                    <span key={v} className="knob-val">
+                      <span className="mono">{v}</span> <span className="muted">{t('knobs.turns', { n })}</span>
+                    </span>
+                  ))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {changes.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div className="muted" style={{ fontSize: 11, marginBottom: 2 }}>
+            {t('knobs.changes')}
+          </div>
+          {changes.slice(-20).map((c, i) => (
+            <div key={i} className="num" style={{ fontSize: 12 }}>
+              <span className="muted">
+                {t('git.turn', { n: c.turn })} · {time(c.ts, lang)}
+              </span>{' '}
+              {t(knobKey(c.knob))}: <span className="mono">{c.from}</span> → <span className="mono">{c.to}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
