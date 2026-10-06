@@ -29,6 +29,7 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
     makeDemoRepos(projectsRoot, exps);
     cfg.claudeDirs = [path.join(root, 'claude')];
     cfg.codexDirs = [path.join(root, 'codex')];
+    cfg.piDirs = [path.join(root, 'pi', 'sessions')];
     cfg.dataDir = ensureDir(path.join(root, 'data'));
     demoTimer = setInterval(() => tickDemo(exps), 4000);
     demoTimer.unref();
@@ -37,7 +38,7 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
   const pool = new Pool(workerUrl);
   const prices = loadPrices(cfg.dataDir);
   if (prices) await pool.broadcast({ kind: 'prices', table: prices });
-  const indexer = new Indexer({ claudeDirs: cfg.claudeDirs, codexDirs: cfg.codexDirs }, pool, cfg.dataDir);
+  const indexer = new Indexer({ claudeDirs: cfg.claudeDirs, codexDirs: cfg.codexDirs, piDirs: cfg.piDirs }, pool, cfg.dataDir);
   indexer.groupBy = readSettings(cfg.dataDir).groupBy ?? 'smart';
   if (cfg.rebuild) indexer.clearCache();
   else indexer.loadCache();
@@ -57,6 +58,7 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
   if (!cfg.demo) {
     for (const d of cfg.claudeDirs) log(`  Claude Code logs: ${path.join(d, 'projects')}${fs.existsSync(path.join(d, 'projects')) ? '' : '  (not found)'}`);
     for (const d of cfg.codexDirs) log(`  Codex logs:       ${path.join(d, 'sessions')}${fs.existsSync(path.join(d, 'sessions')) ? '' : '  (not found)'}`);
+    for (const d of cfg.piDirs) log(`  Pi logs:          ${d}${fs.existsSync(d) ? '' : '  (not found)'}`);
   }
   log('  Press Ctrl+C to stop.');
 

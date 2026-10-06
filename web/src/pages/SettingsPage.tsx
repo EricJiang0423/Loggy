@@ -3,7 +3,7 @@ import type { Theme } from '../App';
 import { api, type AiForm } from '../api';
 import { Card, Seg } from '../components/common';
 import { duration, int, relative } from '../format';
-import { useI18n, type Lang } from '../i18n';
+import { useI18n, type Key, type Lang } from '../i18n';
 import { refreshServer, refreshSessions, useStore } from '../store';
 
 
@@ -83,7 +83,7 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
           <tbody>
             {server?.sources.map((s) => (
               <tr key={s.dir}>
-                <td>{t(s.agent === 'claude' ? 'agent.claude' : 'agent.codex')}</td>
+                <td>{t(`agent.${s.agent}` as Key)}</td>
                 <td className="mono">
                   {s.dir} {!s.exists && <span className="err">({t('set.missing')})</span>}
                 </td>

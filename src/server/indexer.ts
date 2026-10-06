@@ -11,7 +11,7 @@ import type { Agent, IndexProgress, SessionMark, SessionSummary, SourceInfo } fr
 import { ensureDir } from './config.js';
 import type { Pool } from './pool.js';
 import { readCodexThreads } from './codexstate.js';
-import { groupProjects, readRemote, type GroupBy, type Place } from './projects.js';
+import { groupProjects, readBranch, readRemote, type GroupBy, type Place } from './projects.js';
 
 const CACHE_VERSION = 2;
 const KEEP_STATE_MS = 3 * 86400_000;
@@ -35,6 +35,7 @@ export interface Entry {
 export interface Sources {
   claudeDirs: string[];
   codexDirs: string[];
+  piDirs: string[];
 }
 
 interface Discovered {
@@ -57,6 +58,7 @@ export class Indexer extends EventEmitter {
   private timers: NodeJS.Timeout[] = [];
   private watchers: fs.FSWatcher[] = [];
   private gitRoots = new Map<string, string>();
+  private branches = new Map<string, string | undefined>();
   private places = new Map<string, Place>();
   groupBy: GroupBy = 'smart';
   /** AI summary per session id, attached to the list (kept by the server). */
@@ -150,6 +152,17 @@ export class Indexer extends EventEmitter {
       const before = out.length;
       for (const sub of ['sessions', 'archived_sessions']) walkRollouts(path.join(dir, sub), out, 0);
       info.push({ agent: 'codex', dir, exists: fs.existsSync(path.join(dir, 'sessions')), files: out.length - before, bytes: 0 });
+    }
+    for (const dir of this.sources.piDirs) {
+      const before = out.length;
+      for (const proj of readdir(dir)) {
+        if (!proj.isDirectory()) continue;
+        const pdir = path.join(dir, proj.name);
+        for (const f of readdir(pdir)) {
+          if (f.isFile() && f.name.endsWith('.jsonl')) out.push({ file: path.join(pdir, f.name), agent: 'pi' });
+        }
+      }
+      info.push({ agent: 'pi', dir, exists: fs.existsSync(dir), files: out.length - before, bytes: 0 });
     }
     // Prefer the plain file when both a .jsonl and its .zst copy exist.
     const plain = new Set(out.filter((d) => !d.file.endsWith('.zst')).map((d) => d.file));
@@ -264,6 +277,8 @@ export class Indexer extends EventEmitter {
     const r = await this.pool.run<SummaryResult>({ kind: 'summary', file, agent, resume, skipFrom });
     const summary = r.summary;
     summary.mtime = st.mtimeMs;
+    // Pi logs carry no branch, so it is read from the repository the session ran in.
+    if (agent === 'pi' && !summary.branch && summary.cwd) summary.branch = this.branchOf(summary.cwd);
     const keepState = Date.now() - st.mtimeMs < KEEP_STATE_MS && !file.endsWith('.zst');
     const entry: Entry = {
       file,
@@ -306,6 +321,7 @@ export class Indexer extends EventEmitter {
     const roots = [
       ...this.sources.claudeDirs.map((d) => path.join(d, 'projects')),
       ...this.sources.codexDirs.flatMap((d) => [path.join(d, 'sessions'), path.join(d, 'archived_sessions')]),
+      ...this.sources.piDirs,
     ];
     let pending = false;
     const kick = () => {
@@ -402,6 +418,7 @@ export class Indexer extends EventEmitter {
   private agentOf(file: string): Agent | undefined {
     if (this.sources.claudeDirs.some((d) => file.startsWith(path.join(d, 'projects')))) return 'claude';
     if (this.sources.codexDirs.some((d) => file.startsWith(d)) && /rollout-.*\.jsonl(\.zst)?$/.test(file)) return 'codex';
+    if (this.sources.piDirs.some((d) => file.startsWith(d)) && file.endsWith('.jsonl')) return 'pi';
     return undefined;
   }
 
@@ -693,6 +710,18 @@ export class Indexer extends EventEmitter {
       this.places.set(cwd, p);
     }
     return p;
+  }
+
+  /** Checked-out branch of the repository containing cwd, cached per git root. */
+  private branchOf(cwd: string): string | undefined {
+    const root = this.gitRoot(cwd);
+    if (!fs.existsSync(path.join(root, '.git'))) return undefined;
+    let branch = this.branches.get(root);
+    if (branch === undefined) {
+      branch = readBranch(root);
+      this.branches.set(root, branch);
+    }
+    return branch;
   }
 
   /** New smart categories: every client gets a full list. */

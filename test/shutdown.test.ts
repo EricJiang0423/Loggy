@@ -9,7 +9,7 @@ import { DEFAULT_AI_MODEL } from '../src/server/config';
 test('closing the server does not wait for an open page', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'loggy-close-'));
   const app = await start(
-    { port: 0, host: '127.0.0.1', open: false, demo: false, rebuild: true, claudeDirs: [path.join(dir, 'claude')], codexDirs: [path.join(dir, 'codex')], dataDir: path.join(dir, 'data'), aiModel: DEFAULT_AI_MODEL, version: 'test' },
+    { port: 0, host: '127.0.0.1', open: false, demo: false, rebuild: true, claudeDirs: [path.join(dir, 'claude')], codexDirs: [path.join(dir, 'codex')], piDirs: [], dataDir: path.join(dir, 'data'), aiModel: DEFAULT_AI_MODEL, version: 'test' },
     { quiet: true, workerUrl: null, autoSummaries: false },
   );
   // a page's event stream stays open until the server ends it

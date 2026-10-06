@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { SessionSummary } from '../../../src/shared/types';
+import { AGENTS, type Agent, type SessionSummary } from '../../../src/shared/types';
 import { api } from '../api';
 import { Calendar } from '../components/Calendar';
 import { LABELS, Seg, useDebounced, usePersisted } from '../components/common';
@@ -11,7 +11,7 @@ import type { ColorDim } from '../colors';
 
 export type OutcomeFilter = 'all' | 'live' | 'done' | 'leftover' | 'abandoned';
 type Sort = 'recent' | 'start' | 'cost' | 'duration' | 'changes';
-type AgentFilter = 'all' | 'claude' | 'codex';
+type AgentFilter = 'all' | Agent;
 
 
 const isLive = (s: SessionSummary) => s.status === 'running' || s.status === 'stalled' || s.status === 'needs_input';
@@ -129,8 +129,11 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
         <span className="spacer" />
         <select className="sel" value={agent} onChange={(e) => setAgent(e.target.value as AgentFilter)} aria-label={t('agent.all')}>
           <option value="all">{t('agent.all')}</option>
-          <option value="claude">{t('agent.claude')}</option>
-          <option value="codex">{t('agent.codex')}</option>
+          {AGENTS.map((a) => (
+            <option key={a} value={a}>
+              {t(`agent.${a}` as Key)}
+            </option>
+          ))}
         </select>
         <select className="sel" value={project} onChange={(e) => setProject(e.target.value)} aria-label={t('sessions.allProjects')}>
           <option value="">{t('sessions.allProjects')}</option>

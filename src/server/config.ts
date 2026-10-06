@@ -12,6 +12,8 @@ export interface Config {
   claudeDirs: string[];
   /** Codex homes (each containing sessions/ and archived_sessions/). */
   codexDirs: string[];
+  /** Pi session directories (each holding one subdirectory per working directory). */
+  piDirs: string[];
   dataDir: string;
   aiModel: string;
   version: string;
@@ -28,6 +30,15 @@ export function defaultClaudeDirs(): string[] {
 
 export function defaultCodexDirs(): string[] {
   return [process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex')];
+}
+
+export function defaultPiDirs(): string[] {
+  const custom = process.env.PI_CODING_AGENT_SESSION_DIR;
+  if (custom) return [path.resolve(custom)];
+  const dirs = new Set<string>();
+  if (process.env.PI_CODING_AGENT_DIR) dirs.add(path.join(path.resolve(process.env.PI_CODING_AGENT_DIR), 'sessions'));
+  dirs.add(path.join(os.homedir(), '.pi', 'agent', 'sessions'));
+  return [...dirs];
 }
 
 export function defaultDataDir(): string {

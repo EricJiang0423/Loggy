@@ -20,7 +20,7 @@ test('a live Claude process state overrides the guess from the log', async () =>
     { type: 'assistant', uuid: 'a1', parentUuid: 'u1', isSidechain: false, sessionId: sid, cwd: '/w/app', timestamp: now, message: { id: 'm1', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }], stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 } } },
   ];
   fs.writeFileSync(path.join(proj, `${sid}.jsonl`), recs.map((r) => JSON.stringify(r)).join('\n') + '\n');
-  const ix = new Indexer({ claudeDirs: [claude], codexDirs: [] }, new Pool(undefined), path.join(root, 'data'));
+  const ix = new Indexer({ claudeDirs: [claude], codexDirs: [], piDirs: [] }, new Pool(undefined), path.join(root, 'data'));
   await ix.scan();
   expect(ix.summaries()[0].status).toBe('running'); // the log alone says the tool call is open
 

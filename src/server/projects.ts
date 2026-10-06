@@ -26,20 +26,35 @@ export function normalizeRemote(url: string | undefined): string | undefined {
   return u || undefined;
 }
 
-/** Origin URL from a repo's git config (worktrees point to the main repo's config). */
+/** The git directory of a repository; worktrees point at the main repo's config. */
+function gitDirOf(root: string): string {
+  let gitDir = path.join(root, '.git');
+  if (fs.statSync(gitDir).isFile()) {
+    const target = /gitdir:\s*(.+)/.exec(fs.readFileSync(gitDir, 'utf8'))?.[1]?.trim();
+    if (!target) throw new Error('worktree without gitdir');
+    gitDir = path.resolve(root, target);
+    const common = path.join(gitDir, 'commondir');
+    if (fs.existsSync(common)) gitDir = path.resolve(gitDir, fs.readFileSync(common, 'utf8').trim());
+  }
+  return gitDir;
+}
+
+/** Origin URL from a repo's git config. */
 export function readRemote(root: string): string | undefined {
   try {
-    let gitDir = path.join(root, '.git');
-    if (fs.statSync(gitDir).isFile()) {
-      const target = /gitdir:\s*(.+)/.exec(fs.readFileSync(gitDir, 'utf8'))?.[1]?.trim();
-      if (!target) return undefined;
-      gitDir = path.resolve(root, target);
-      const common = path.join(gitDir, 'commondir');
-      if (fs.existsSync(common)) gitDir = path.resolve(gitDir, fs.readFileSync(common, 'utf8').trim());
-    }
-    const config = fs.readFileSync(path.join(gitDir, 'config'), 'utf8');
+    const config = fs.readFileSync(path.join(gitDirOf(root), 'config'), 'utf8');
     const origin = /\[remote "origin"\]([^[]*)/.exec(config)?.[1] ?? /\[remote "[^"]+"\]([^[]*)/.exec(config)?.[1];
     return normalizeRemote(/^\s*url\s*=\s*(.+)$/m.exec(origin ?? '')?.[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Branch checked out in a repository; a detached HEAD has none. */
+export function readBranch(root: string): string | undefined {
+  try {
+    const head = fs.readFileSync(path.join(gitDirOf(root), 'HEAD'), 'utf8').trim();
+    return /^ref:\s*refs\/heads\/(.+)$/.exec(head)?.[1]?.trim() || undefined;
   } catch {
     return undefined;
   }

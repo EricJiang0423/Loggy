@@ -27,6 +27,7 @@
   --critical-soft: #f8e0e0;
   --claude: #eb6834;
   --codex: #2a78d6;
+  --pi: #1baf7a;
   --today: rgba(42, 120, 214, 0.06);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.06);
   --ring: rgba(11, 11, 11, 0.1);
@@ -61,6 +62,7 @@
   --critical-soft: #3d1c1c;
   --claude: #d95926;
   --codex: #3987e5;
+  --pi: #199e70;
   --today: rgba(57, 135, 229, 0.08);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
   --ring: rgba(255, 255, 255, 0.1);
@@ -502,6 +504,11 @@ label.chk {
 .badge.codex {
   background: color-mix(in srgb, var(--codex) 16%, transparent);
   color: color-mix(in srgb, var(--codex) 70%, var(--ink));
+}
+
+.badge.pi {
+  background: color-mix(in srgb, var(--pi) 16%, transparent);
+  color: color-mix(in srgb, var(--pi) 70%, var(--ink));
 }
 
 .status {

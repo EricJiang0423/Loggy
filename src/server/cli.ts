@@ -1,11 +1,19 @@
 // `loggy` command line entry.
 
-import { DEFAULT_AI_MODEL, DEFAULT_PORT, defaultClaudeDirs, defaultCodexDirs, defaultDataDir, type Config } from './config.js';
+import {
+  DEFAULT_AI_MODEL,
+  DEFAULT_PORT,
+  defaultClaudeDirs,
+  defaultCodexDirs,
+  defaultDataDir,
+  defaultPiDirs,
+  type Config,
+} from './config.js';
 
 declare const __LOGGY_VERSION__: string;
 const VERSION = typeof __LOGGY_VERSION__ === 'string' ? __LOGGY_VERSION__ : '0.0.0-dev';
 
-const HELP = `Loggy ${VERSION} - local dashboard for Claude Code and Codex sessions
+const HELP = `Loggy ${VERSION} - local dashboard for Claude Code, Codex and Pi sessions
 
 Usage
   loggy [options]            start the dashboard (default http://127.0.0.1:${DEFAULT_PORT})
@@ -17,6 +25,8 @@ Options
   --claude-dir <dir>         Claude config dir containing projects/ (repeatable;
                              default $CLAUDE_CONFIG_DIR and ~/.claude)
   --codex-dir <dir>          Codex home containing sessions/ (repeatable; default $CODEX_HOME or ~/.codex)
+  --pi-dir <dir>             Pi session dir (repeatable; default $PI_CODING_AGENT_SESSION_DIR or
+                             $PI_CODING_AGENT_DIR/sessions and ~/.pi/agent/sessions)
   --data-dir <dir>           where Loggy keeps its cache (default $LOGGY_HOME or ~/.loggy)
   --ai-model <id>            model for optional AI summaries (default ${DEFAULT_AI_MODEL})
   --rebuild                  ignore the cache and parse every log again
@@ -37,6 +47,7 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
     rebuild: false,
     claudeDirs: [],
     codexDirs: [],
+    piDirs: [],
     dataDir: defaultDataDir(),
     aiModel: process.env.LOGGY_AI_MODEL ?? DEFAULT_AI_MODEL,
     version: VERSION,
@@ -66,6 +77,9 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
       case '--codex-dir':
         cfg.codexDirs.push(next());
         break;
+      case '--pi-dir':
+        cfg.piDirs.push(next());
+        break;
       case '--data-dir':
         cfg.dataDir = next();
         break;
@@ -93,6 +107,7 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
   if (!Number.isInteger(cfg.port) || cfg.port < 0 || cfg.port > 65535) throw new Error('Invalid --port');
   if (!cfg.claudeDirs.length) cfg.claudeDirs = defaultClaudeDirs();
   if (!cfg.codexDirs.length) cfg.codexDirs = defaultCodexDirs();
+  if (!cfg.piDirs.length) cfg.piDirs = defaultPiDirs();
   return cfg;
 }
 

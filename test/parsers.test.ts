@@ -391,7 +391,7 @@ describe('codex: real-log regressions', () => {
     ]);
     const { Indexer } = await import('../src/server/indexer');
     const { Pool } = await import('../src/server/pool');
-    const ix = new Indexer({ claudeDirs: [], codexDirs: [path.join(root, 'codex')] }, new Pool(undefined), path.join(root, 'data'));
+    const ix = new Indexer({ claudeDirs: [], codexDirs: [path.join(root, 'codex')], piDirs: [] }, new Pool(undefined), path.join(root, 'data'));
     await ix.scan();
     const child = ix.summaries().find((s) => s.sessionId === kid)!;
     expect(child.uncommittedEdits).toBe(false);
@@ -422,7 +422,7 @@ describe('codex: real-log regressions', () => {
     ]);
     const { Indexer } = await import('../src/server/indexer');
     const { Pool } = await import('../src/server/pool');
-    const ix = new Indexer({ claudeDirs: [], codexDirs: [path.join(root, 'codex')] }, new Pool(undefined), path.join(root, 'data'));
+    const ix = new Indexer({ claudeDirs: [], codexDirs: [path.join(root, 'codex')], piDirs: [] }, new Pool(undefined), path.join(root, 'data'));
     await ix.scan();
     const list = ix.summaries().filter((s) => s.sessionId === thread);
     expect(list.length).toBe(1);
@@ -469,5 +469,296 @@ describe('0.6 summary data', () => {
       { timestamp: ts(12), type: 'event_msg', payload: { type: 'task_complete', turn_id: 't1' } },
     ]);
     expect(summarizeFile(f, 'codex').summary.speed?.['gpt-6-sol']).toEqual([300, 6_000]); // 200 tok / 4 s + 100 tok / 2 s
+  });
+});
+
+describe('pi edge cases', () => {
+  const sid = '01a0bbbb-1111-4111-8111-111111111111';
+  let n = 0;
+  const base = Date.UTC(2026, 9, 3, 9, 0, 0);
+  const ts = () => new Date(base + n++ * 1000).toISOString();
+  const header = (extra: object = {}) => ({ type: 'session', version: 3, id: sid, timestamp: ts(), cwd: '/w/p', ...extra });
+  const user = (text: string) => ({ type: 'message', id: `e${n}`, parentId: null, timestamp: ts(), message: { role: 'user', content: [{ type: 'text', text }], timestamp: Date.parse(ts()) } });
+  const asst = (content: unknown[], stop: string, usage: object, extra: object = {}) => ({
+    type: 'message',
+    id: `e${n}`,
+    parentId: null,
+    timestamp: ts(),
+    message: { role: 'assistant', content, provider: 'anthropic', model: 'claude-sonnet-4-5', usage: { input: 10, output: 20, cacheRead: 100, cacheWrite: 0, totalTokens: 130, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, ...usage }, stopReason: stop, timestamp: Date.parse(ts()), ...extra },
+  });
+  const call = (id: string, name: string, args: object) => ({ type: 'toolCall', id, name, arguments: args });
+  const result = (id: string, name: string, text: string, extra: object = {}) => ({
+    type: 'message',
+    id: `e${n}`,
+    parentId: null,
+    timestamp: ts(),
+    message: { role: 'toolResult', toolCallId: id, toolName: name, content: [{ type: 'text', text }], isError: false, timestamp: Date.parse(ts()), ...extra },
+  });
+  const file = (recs: unknown[], name = `${sid}.jsonl`) => writeLines(name, recs);
+
+  test('the header gives cwd, id and version', () => {
+    const s = summarizeFile(file([header(), user('hello'), asst([{ type: 'text', text: 'hi' }], 'stop', {})]), 'pi').summary;
+    expect(s.agent).toBe('pi');
+    expect(s.cwd).toBe('/w/p');
+    expect(s.sessionId).toBe(sid);
+    expect(s.version).toBe('3');
+    expect(s.turns).toBe(1);
+    expect(s.models).toEqual(['claude-sonnet-4-5']);
+    expect(s.tokens.input).toBe(10);
+    expect(s.tokens.cacheRead).toBe(100);
+    expect(s.ctxPeakPct).toBeGreaterThan(0);
+  });
+
+  test('a fork continues its parent session', () => {
+    const parent = `/w/p/2026-10-03T09-00-00-000Z_${sid}.jsonl`;
+    const s = summarizeFile(file([header({ parentSession: parent }), user('from the fork')]), 'pi').summary;
+    expect(s.sessionId).toBe(sid);
+    expect(s.forkedFrom).toBe(`pi:${sid}`);
+  });
+
+  test('the last /name wins', () => {
+    const s = summarizeFile(
+      file([
+        header(),
+        user('go'),
+        { type: 'session_info', id: 'n1', parentId: null, timestamp: ts(), name: 'first name' },
+        asst([{ type: 'text', text: 'ok' }], 'stop', {}),
+        { type: 'session_info', id: 'n2', parentId: null, timestamp: ts(), name: 'second name' },
+      ]),
+      'pi',
+    ).summary;
+    expect(s.title).toBe('second name');
+    expect(s.titleSource).toBe('custom');
+  });
+
+  test('a model change before any reply is still listed', () => {
+    const s = summarizeFile(file([header(), { type: 'model_change', id: 'm', parentId: null, timestamp: ts(), provider: 'openai', modelId: 'gpt-5.5' }]), 'pi').summary;
+    expect(s.models).toEqual(['gpt-5.5']);
+  });
+
+  test('a tool call without a result leaves the turn open', () => {
+    const s = summarizeFile(file([header(), user('go'), asst([call('t1', 'read', { path: '/w/p/a.ts' })], 'toolUse', {})]), 'pi').summary;
+    expect(s.lastTurn.ended).toBe(false);
+    expect(s.toolCalls).toBe(1);
+  });
+
+  test('an edit result counts its diff lines', () => {
+    const diff = [' ctx', '-old', '+new', '+new2', ' ctx'].join('\n');
+    const s = summarizeFile(
+      file([header(), user('edit it'), asst([call('t1', 'edit', { path: '/w/p/a.ts', edits: [{ oldText: 'old', newText: 'new' }] })], 'toolUse', {}), result('t1', 'edit', 'replaced', { details: { diff } }), asst([{ type: 'text', text: 'done' }], 'stop', {})]),
+      'pi',
+    ).summary;
+    expect(s.filesChanged).toBe(1);
+    expect(s.linesAdded).toBe(2);
+    expect(s.linesRemoved).toBe(1);
+  });
+
+  test('a write result has no diff, so the body from the call is the line count', () => {
+    const body = 'one\ntwo\nthree';
+    const s = summarizeFile(
+      file([header(), user('write it'), asst([call('t1', 'write', { path: '/w/p/b.ts', content: body })], 'toolUse', {}), result('t1', 'write', 'Successfully wrote to /w/p/b.ts'), asst([{ type: 'text', text: 'done' }], 'stop', {})]),
+      'pi',
+    ).summary;
+    expect(s.filesChanged).toBe(1);
+    expect(s.linesAdded).toBe(3);
+    expect(s.linesRemoved).toBe(0);
+  });
+
+  test('a call id with the |fc_ suffix resolves to the same call', () => {
+    const s = summarizeFile(
+      file([header(), user('edit it'), asst([call('t1', 'edit', { path: '/w/p/a.ts', edits: [] })], 'toolUse', {}), result('t1|fc_t1', 'edit', 'replaced', { details: { diff: '+x' } }), asst([{ type: 'text', text: 'done' }], 'stop', {})]),
+      'pi',
+    ).summary;
+    expect(s.linesAdded).toBe(1);
+  });
+
+  test('a commit is read from the line git prints', () => {
+    const s = summarizeFile(
+      file([
+        header(),
+        user('commit'),
+        asst([call('t1', 'bash', { command: 'git add -A && git commit -m "Fix the retry handler"' })], 'toolUse', {}),
+        result('t1', 'bash', '[main 1a2b3c4] Fix the retry handler\n 2 files changed'),
+        asst([{ type: 'text', text: 'committed' }], 'stop', {}),
+      ]),
+      'pi',
+    ).summary;
+    expect(s.commits).toBe(1);
+    const d = detailFile(file([
+      header(),
+      user('commit'),
+      asst([call('t1', 'bash', { command: 'git commit -m "Fix the retry handler"' })], 'toolUse', {}),
+      result('t1', 'bash', '[main 1a2b3c4] Fix the retry handler'),
+    ], 'commit.jsonl'), 'pi');
+    expect(d.commits).toEqual([expect.objectContaining({ sha: '1a2b3c4', branch: 'main', message: 'Fix the retry handler' })]);
+  });
+
+  test('a commit without -m still counts, with the message git printed', () => {
+    const d = detailFile(file([
+      header(),
+      user('commit'),
+      asst([call('t1', 'bash', { command: 'git commit -a' })], 'toolUse', {}),
+      result('t1', 'bash', '[dev/loggy 9f8e7d6] Tidy the handlers'),
+    ], 'no-message.jsonl'), 'pi');
+    expect(d.commits).toEqual([expect.objectContaining({ sha: '9f8e7d6', branch: 'dev/loggy', message: 'Tidy the handlers' })]);
+  });
+
+  test('prose that mentions a commit is not a commit', () => {
+    const s = summarizeFile(
+      file([
+        header(),
+        user('check history'),
+        asst([call('t1', 'bash', { command: 'git log --oneline && echo "CI commit is on the backup branch"' })], 'toolUse', {}),
+        result('t1', 'bash', 'abc1234 CI commit is on the backup branch'),
+        asst([{ type: 'text', text: 'ok' }], 'stop', {}),
+      ]),
+      'pi',
+    ).summary;
+    expect(s.commits).toBe(0);
+  });
+
+  test('a push counts when git reports the remote', () => {
+    const recs = (out: string, isError = false) => [header(), user('push'), asst([call('p1', 'bash', { command: 'git push' })], 'toolUse', {}), result('p1', 'bash', out, { isError }), asst([{ type: 'text', text: 'pushed' }], 'stop', {})];
+    expect(summarizeFile(file(recs('To github.com:demo/p.git\n   main -> main')), 'pi').summary.pushes).toBe(1);
+    expect(summarizeFile(file(recs('Everything up-to-date')), 'pi').summary.pushes).toBe(1);
+    expect(summarizeFile(file(recs('fatal: unable to access', true)), 'pi').summary.pushes).toBe(0);
+    expect(summarizeFile(file(recs('  main -> main', true)), 'pi').summary.pushes).toBe(0);
+  });
+
+  test('a failed tool result counts as an error', () => {
+    const s = summarizeFile(
+      file([header(), user('run it'), asst([call('t1', 'bash', { command: 'npm test' })], 'toolUse', {}), result('t1', 'bash', 'Exit code 1', { isError: true }), asst([{ type: 'text', text: 'one test fails' }], 'stop', {})]),
+      'pi',
+    ).summary;
+    expect(s.toolErrors).toBe(1);
+    expect(s.toolCalls).toBe(1);
+  });
+
+  test('aborted and error stop reasons end the turn differently', () => {
+    const aborted = summarizeFile(file([header(), user('stop'), asst([], 'aborted', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, { errorMessage: 'Operation aborted' })]), 'pi').summary;
+    expect(aborted.interrupts).toBe(1);
+    expect(aborted.apiErrors).toBe(0);
+    expect(aborted.lastTurn.ended).toBe(true);
+    const failed = summarizeFile(file([header(), user('go'), asst([], 'error', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, { errorMessage: 'Connection error.' })]), 'pi').summary;
+    expect(failed.apiErrors).toBe(1);
+    expect(failed.interrupts).toBe(0);
+    expect(failed.lastTurn.ended).toBe(true);
+    expect(failed.outcome).toBe('abandoned');
+  });
+
+  test('a reply that ends in a question waits for the user', () => {
+    const s = summarizeFile(file([header(), user('go'), asst([{ type: 'text', text: 'Should I migrate the old records too?' }], 'stop', {})]), 'pi').summary;
+    expect(s.lastTurn.awaitingReply).toBe(true);
+    expect(s.outcome).toBe('leftover');
+  });
+
+  test('compaction and usage entries are counted', () => {
+    const s = summarizeFile(
+      file([
+        header(),
+        user('go'),
+        asst([{ type: 'text', text: 'ok' }], 'stop', {}),
+        { type: 'compaction', id: 'c1', parentId: null, timestamp: ts(), summary: 'Earlier turns.', firstKeptEntryId: 'e1', tokensBefore: 40000 },
+        { type: 'usage', id: 'u1', parentId: null, timestamp: ts(), kind: 'cache_warm', provider: 'anthropic', model: 'claude-sonnet-4-5', usage: { input: 0, output: 0, cacheRead: 5000, cacheWrite: 0, totalTokens: 5000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } },
+      ]),
+      'pi',
+    ).summary;
+    expect(s.compactions).toBe(1);
+    expect(s.tokens.cacheRead).toBe(5100);
+  });
+
+  test('records that are not conversation are ignored', () => {
+    const s = summarizeFile(
+      file([
+        header(),
+        { type: 'thinking_level_change', id: 't', parentId: null, timestamp: ts(), thinkingLevel: 'high' },
+        user('go'),
+        { type: 'message', id: 'sys', parentId: null, timestamp: ts(), message: { role: 'system', content: '', sections: { preamble: 'You are…' }, timestamp: Date.parse(ts()) } },
+        { type: 'message', id: 'hook', parentId: null, timestamp: ts(), message: { role: 'custom', content: 'hook message', timestamp: Date.parse(ts()) } },
+        { type: 'custom_message', id: 'cm', parentId: null, timestamp: ts(), customType: 'demo', content: 'injected', display: true },
+        { type: 'context_edit', id: 'ce', parentId: null, timestamp: ts(), targetId: 'sys', replacement: null },
+        { type: 'label', id: 'lb', parentId: null, timestamp: ts(), targetId: 'sys', label: 'checkpoint' },
+        { type: 'branch_summary', id: 'bs', parentId: null, timestamp: ts(), fromId: 'sys', summary: 'Left branch' },
+        asst([{ type: 'text', text: 'done' }], 'stop', {}),
+      ]),
+      'pi',
+    ).summary;
+    expect(s.turns).toBe(1);
+    expect(s.userInputs).toBe(1);
+    expect(s.firstPrompt).toBe('go');
+    const d = detailFile(file([header(), user('go'), { type: 'branch_summary', id: 'bs', parentId: null, timestamp: ts(), fromId: 'x', summary: 'Left branch' }, asst([{ type: 'text', text: 'done' }], 'stop', {})], 'branch.jsonl'), 'pi');
+    expect(d.timeline.filter((i) => i.kind === 'user').length).toBe(1);
+  });
+
+  test('a line that is not JSON counts as bad', () => {
+    const f = path.join(dir, 'broken.jsonl');
+    fs.writeFileSync(f, [JSON.stringify(header()), '{"type":"message",', JSON.stringify(user('go'))].join('\n') + '\n');
+    const s = summarizeFile(f, 'pi').summary;
+    expect(s.badLines).toBe(1);
+    expect(s.userInputs).toBe(1);
+    fs.rmSync(f);
+  });
+
+  test('the detail view carries the turns, files and timeline', () => {
+    const f = file([
+      header(),
+      user('add a view'),
+      asst([call('t1', 'edit', { path: '/w/p/a.ts', edits: [] })], 'toolUse', {}),
+      result('t1', 'edit', 'ok', { details: { diff: '+one\n+two' } }),
+      asst([{ type: 'text', text: 'Added it.' }], 'stop', {}),
+    ]);
+    const d = detailFile(f, 'pi');
+    expect(d.turns.length).toBe(1);
+    expect(d.turns[0].prompt).toBe('add a view');
+    expect(d.turns[0].response).toBe('Added it.');
+    expect(d.turns[0].toolCalls).toBe(1);
+    expect(d.files).toEqual([expect.objectContaining({ path: '/w/p/a.ts', added: 2, removed: 0 })]);
+    expect(d.timeline.map((i) => i.kind)).toEqual(['user', 'tool', 'result', 'assistant']);
+    expect(d.timeline[1].tool).toBe('edit');
+  });
+
+  test('a growing file resumes to the same summary', () => {
+    const recs: unknown[] = [header()];
+    for (let i = 0; i < 6; i++) recs.push(user(`step ${i}`), asst([call(`t${i}`, 'bash', { command: 'ls' })], 'toolUse', {}), result(`t${i}`, 'bash', 'ok'), asst([{ type: 'text', text: `done ${i}` }], 'stop', {}));
+    const text = recs.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    const f = path.join(dir, 'grow.jsonl');
+    fs.writeFileSync(f, text.split('\n').slice(0, 14).join('\n') + '\n');
+    const first = summarizeFile(f, 'pi');
+    fs.writeFileSync(f, text);
+    const resumed = summarizeFile(f, 'pi', { state: JSON.parse(JSON.stringify(first.state)), offset: first.offset });
+    const full = summarizeFile(f, 'pi');
+    expect(resumed.summary.turns).toBe(full.summary.turns);
+    expect(tokensOf(resumed.summary)).toBe(tokensOf(full.summary));
+    fs.rmSync(f);
+  });
+
+  test('the indexer reads the session dir and joins a fork to its parent', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loggy-pi-'));
+    const dirPath = path.join(root, 'sessions', '--w-p--');
+    fs.mkdirSync(dirPath, { recursive: true });
+    const write = (name: string, recs: unknown[]) => fs.writeFileSync(path.join(dirPath, name), recs.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const parentName = `2026-10-03T09-00-00-000Z_${sid}.jsonl`;
+    n = 0;
+    const head = header();
+    write(parentName, [head, user('first'), asst([{ type: 'text', text: 'ok' }], 'stop', {})]);
+    n = 100;
+    write(`2026-10-03T10-00-00-000Z_01a0bbbb-2222-4222-8222-222222222222.jsonl`, [
+      { type: 'session', version: 3, id: '01a0bbbb-2222-4222-8222-222222222222', timestamp: ts(), cwd: '/w/p', parentSession: path.join(dirPath, parentName) },
+      user('second'),
+      asst([{ type: 'text', text: 'ok again' }], 'stop', {}),
+    ]);
+    const { Indexer } = await import('../src/server/indexer');
+    const { Pool } = await import('../src/server/pool');
+    const ix = new Indexer({ claudeDirs: [], codexDirs: [], piDirs: [path.join(root, 'sessions')] }, new Pool(undefined), path.join(root, 'data'));
+    await ix.scan();
+    const list = ix.summaries();
+    expect(list.length).toBe(1);
+    expect(list[0].turns).toBe(2);
+    expect(list[0].start).toBe(Date.parse((head as { timestamp: string }).timestamp));
+    expect(list[0].end).toBeGreaterThan(list[0].start);
+    const d = detailFile(ix.pagesOf(`pi:${sid}`).map((e) => e.file), 'pi');
+    expect(d.turns.length).toBe(2);
+    ix.close();
+    fs.rmSync(root, { recursive: true, force: true });
   });
 });

@@ -31,6 +31,7 @@ const en = {
   'agent.all': 'All agents',
   'agent.claude': 'Claude Code',
   'agent.codex': 'Codex',
+  'agent.pi': 'Pi',
 
   'sessions.list': 'List',
   'sessions.calendar': 'Calendar',
@@ -48,7 +49,7 @@ const en = {
   'sort.changes': 'Most changes',
   'sessions.reload': 'Reload',
   'sessions.empty': 'No sessions match these filters.',
-  'sessions.emptyAll': 'No sessions found yet. Loggy reads ~/.claude/projects and ~/.codex/sessions. Start a Claude Code or Codex session, or run with --demo to try it out.',
+  'sessions.emptyAll': 'No sessions found yet. Loggy reads ~/.claude/projects, ~/.codex/sessions and ~/.pi/agent/sessions. Start a session in any of them, or run with --demo to try it out.',
   'sessions.select': 'Select a session to see its details.',
   'sessions.searchResults': '{n} match|{n} matches',
 
@@ -251,7 +252,7 @@ const en = {
   'chart.working': 'Agent working',
   'chart.waiting': 'Waiting for you',
   'chart.peak': 'Peak',
-  'cmp.title': 'Claude Code vs Codex',
+  'cmp.title': 'Claude Code vs Codex vs Pi',
   'cmp.note': 'Different agents often get different kinds of tasks; treat this as context, not a ranking.',
   'cmp.metric': 'Metric',
   'cmp.sessions': 'Sessions',
@@ -395,6 +396,7 @@ const zh: Dict = {
   'agent.all': '全部 agent',
   'agent.claude': 'Claude Code',
   'agent.codex': 'Codex',
+  'agent.pi': 'Pi',
 
   'sessions.list': '列表',
   'sessions.calendar': '日历',
@@ -412,7 +414,7 @@ const zh: Dict = {
   'sort.changes': '改动最多',
   'sessions.reload': '重新加载',
   'sessions.empty': '没有符合筛选条件的会话。',
-  'sessions.emptyAll': '还没有找到会话。Loggy 会读取 ~/.claude/projects 和 ~/.codex/sessions。开一个 Claude Code 或 Codex 会话，或者用 --demo 参数试用。',
+  'sessions.emptyAll': '还没有找到会话。Loggy 会读取 ~/.claude/projects、~/.codex/sessions 和 ~/.pi/agent/sessions。开一个会话，或者用 --demo 参数试用。',
   'sessions.select': '选择一个会话查看详情。',
   'sessions.searchResults': '{n} 条匹配',
 
@@ -615,7 +617,7 @@ const zh: Dict = {
   'chart.working': 'Agent 工作',
   'chart.waiting': '等你',
   'chart.peak': '峰值',
-  'cmp.title': 'Claude Code 与 Codex 对比',
+  'cmp.title': 'Claude Code、Codex 与 Pi 对比',
   'cmp.note': '不同 agent 接的任务往往不一样，这里的数字仅供参考，不是排名。',
   'cmp.metric': '指标',
   'cmp.sessions': '会话数',

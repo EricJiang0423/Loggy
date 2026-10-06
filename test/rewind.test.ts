@@ -75,7 +75,7 @@ describe('rewind', () => {
   });
 
   test('the original and its fork are one session, counted once', async () => {
-    const ix = new Indexer({ claudeDirs: [path.join(root, 'claude')], codexDirs: [] }, new Pool(undefined), path.join(root, 'data'));
+    const ix = new Indexer({ claudeDirs: [path.join(root, 'claude')], codexDirs: [], piDirs: [] }, new Pool(undefined), path.join(root, 'data'));
     await ix.scan();
     const all = ix.summaries();
     const main = all.filter((s) => !s.isSubagent);

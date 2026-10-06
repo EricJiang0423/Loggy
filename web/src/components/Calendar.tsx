@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
-import { OTHER_KEY, colorFor, dimValue, legendEntries, outcomeColor, series, slotMap, type ColorDim } from '../colors';
+import { OTHER_KEY, agentColor, colorFor, dimValue, legendEntries, outcomeColor, series, slotMap, type ColorDim } from '../colors';
 import { addDays, dateTime, day, duration, money, shortDay, startOfWeek, time } from '../format';
 import { useI18n, type Key } from '../i18n';
 import { useStore } from '../store';
@@ -345,12 +345,12 @@ export function Calendar({
     if (colorBy === 'outcome') {
       return ['running', 'stalled', 'needs_input'].includes(v) ? t(`status.${v}` as Key) : t(`outcome.${v}` as Key);
     }
-    if (colorBy === 'agent') return t(v === 'claude' ? 'agent.claude' : 'agent.codex');
+    if (colorBy === 'agent') return t(`agent.${v}` as Key);
     return v;
   };
   const legendColor = (v: string) => {
     if (colorBy === 'outcome') return outcomeColor(v as SessionSummary['outcome']);
-    if (colorBy === 'agent') return series(v === 'claude' ? 1 : 0);
+    if (colorBy === 'agent') return agentColor(v);
     const i = slots.get(v);
     return series(i === undefined ? -1 : i);
   };

@@ -69,7 +69,7 @@ describe('automatic summaries end to end', () => {
     fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
     writeSettings(path.join(dir, 'data'), { ai: { provider: 'openai', baseURL: base, model: 'corp', auto: true, lang: 'zh-CN' } });
     app = await start(
-      { port: 0, host: '127.0.0.1', open: false, demo: false, rebuild: true, claudeDirs: [path.join(dir, 'claude')], codexDirs: [path.join(dir, 'codex')], dataDir: path.join(dir, 'data'), aiModel: DEFAULT_AI_MODEL, version: 'test' },
+      { port: 0, host: '127.0.0.1', open: false, demo: false, rebuild: true, claudeDirs: [path.join(dir, 'claude')], codexDirs: [path.join(dir, 'codex')], piDirs: [], dataDir: path.join(dir, 'data'), aiModel: DEFAULT_AI_MODEL, version: 'test' },
       { quiet: true, workerUrl: null, autoSummaries: false },
     );
     for (let i = 0; i < 100 && app.indexer.progress.phase !== 'ready'; i++) await new Promise((r) => setTimeout(r, 50));

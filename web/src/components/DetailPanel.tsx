@@ -132,7 +132,13 @@ function Header({
   const { t, lang } = useI18n();
   const now = useStore((x) => x.now);
   const tokens = s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite;
-  const resume = s.isSubagent ? undefined : s.agent === 'claude' ? `cd ${quote(s.cwd)} && claude --resume ${s.sessionId}` : `cd ${quote(s.cwd)} && codex resume ${s.sessionId}`;
+  const resume = s.isSubagent
+    ? undefined
+    : s.agent === 'claude'
+      ? `cd ${quote(s.cwd)} && claude --resume ${s.sessionId}`
+      : s.agent === 'codex'
+        ? `cd ${quote(s.cwd)} && codex resume ${s.sessionId}`
+        : `cd ${quote(s.cwd)} && pi --continue`;
   return (
     <div className="detail-head">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>

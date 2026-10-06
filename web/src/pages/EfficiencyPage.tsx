@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import type { SessionSummary } from '../../../src/shared/types';
+import { AGENTS, type Agent, type SessionSummary } from '../../../src/shared/types';
 import { agentColor, series as seriesColor } from '../colors';
 import { BarChart, DataTable, Heatmap, Legend, type Series } from '../components/Charts';
 import { Seg, StatusBadge, useThemeVersion } from '../components/common';
@@ -57,7 +57,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const list = useStore((s) => s.list);
   const now = useStore((s) => s.now);
   const [range, setRange] = useState<Range>('30');
-  const [agent, setAgent] = useState<'all' | 'claude' | 'codex'>('all');
+  const [agent, setAgent] = useState<'all' | Agent>('all');
   const [project, setProject] = useState('');
   const [tables, setTables] = useState<Record<string, boolean>>({});
 
@@ -84,7 +84,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
       starts.push(d);
       labels.push(shortDay(d, lang));
     }
-    const cost: Record<string, number[]> = { claude: Array(days).fill(0), codex: Array(days).fill(0) };
+    const cost: Record<string, number[]> = Object.fromEntries(AGENTS.map((a) => [a, Array(days).fill(0)]));
     const active = Array(days).fill(0);
     const wait = Array(days).fill(0);
     const peakMaps: Map<number, number>[] = Array.from({ length: days }, () => new Map());
@@ -128,7 +128,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   }, [scoped, from, to]);
 
   const cmp = useMemo(() => {
-    const rows = (['claude', 'codex'] as const).map((a) => {
+    const rows = AGENTS.map((a) => {
       const g = aggregate(
         list.filter((s) => s.agent === a && (!project || s.projectPath === project)),
         from,
@@ -189,10 +189,8 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const hit = cur.cacheBase ? (cur.cacheRead / cur.cacheBase) * 100 : 0;
   const prevHit = prev && prev.cacheBase ? (prev.cacheRead / prev.cacheBase) * 100 : undefined;
 
-  const costSeries: Series[] = [
-    { key: 'claude', label: t('agent.claude'), color: agentColor('claude'), values: daily.cost.claude },
-    { key: 'codex', label: t('agent.codex'), color: agentColor('codex'), values: daily.cost.codex },
-  ].filter((s) => agent === 'all' || s.key === agent);
+  const costSeries: Series[] = AGENTS.map((a) => ({ key: a, label: t(`agent.${a}` as Key), color: agentColor(a), values: daily.cost[a] }))
+    .filter((s) => agent === 'all' || s.key === agent);
   const timeSeries: Series[] = [
     { key: 'active', label: t('chart.working'), color: seriesColor(2), values: daily.active },
     { key: 'wait', label: t('chart.waiting'), color: seriesColor(3), values: daily.wait },
@@ -225,8 +223,11 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
         />
         <select className="sel" value={agent} onChange={(e) => setAgent(e.target.value as typeof agent)} aria-label={t('agent.all')}>
           <option value="all">{t('agent.all')}</option>
-          <option value="claude">{t('agent.claude')}</option>
-          <option value="codex">{t('agent.codex')}</option>
+          {AGENTS.map((a) => (
+            <option key={a} value={a}>
+              {t(`agent.${a}` as Key)}
+            </option>
+          ))}
         </select>
         <select className="sel" value={project} onChange={(e) => setProject(e.target.value)} aria-label={t('sessions.allProjects')}>
           <option value="">{t('sessions.allProjects')}</option>
@@ -291,7 +292,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
                   {cmp.map(({ a }) => (
                     <th key={a} className="r">
                       <span className="dot" style={{ background: agentColor(a), marginRight: 5 }} />
-                      {t(a === 'claude' ? 'agent.claude' : 'agent.codex')}
+                      {t(`agent.${a}` as Key)}
                     </th>
                   ))}
                 </tr>

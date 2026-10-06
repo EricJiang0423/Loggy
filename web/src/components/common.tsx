@@ -28,7 +28,7 @@ export function Star({ s }: { s: Pick<SessionSummary, 'id' | 'mark'> }) {
 
 export function AgentBadge({ agent }: { agent: string }) {
   const { t } = useI18n();
-  return <span className={`badge ${agent}`}>{t(agent === 'claude' ? 'agent.claude' : 'agent.codex')}</span>;
+  return <span className={`badge ${agent}`}>{t(`agent.${agent}` as Key)}</span>;
 }
 
 /** Live status when the session is active, otherwise the outcome. */
