@@ -52,6 +52,8 @@ const en = {
   'knobs.turns': '{n} turns',
   'knobs.changes': 'Switched',
   'set.harnessHelp': 'A harness you turn off is no longer indexed and is left out of every page and statistic.',
+  'set.notFound': 'Not found on this machine, so not shown: {names}.',
+  'set.listSep': ', ',
   'agent.pi': 'Pi',
 
   'sessions.list': 'List',
@@ -482,6 +484,8 @@ const zh: Dict = {
   'knobs.turns': '{n} 轮',
   'knobs.changes': '切换记录',
   'set.harnessHelp': '关掉的 Harness 不再索引，也不会出现在任何页面和统计里。',
+  'set.notFound': '本机没有检测到，所以没有显示：{names}。',
+  'set.listSep': '、',
   'agent.pi': 'Pi',
 
   'sessions.list': '列表',

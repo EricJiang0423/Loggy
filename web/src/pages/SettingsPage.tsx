@@ -18,6 +18,9 @@ function size(bytes: number): string {
 export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; setLang: (l: Lang) => void; theme: Theme; setTheme: (t: Theme) => void }) {
   const { t } = useI18n();
   const server = useStore((s) => s.server);
+  // Harnesses that are not on this machine are left out; their folders are named once below.
+  const found = (a: string) => server?.installed?.find((i) => i.agent === a)?.installed !== false;
+  const missing = (server?.installed ?? []).filter((i) => !i.installed).map((i) => i.agent);
   const progress = useStore((s) => s.progress);
   const count = useStore((s) => s.sessions.size);
   const [busy, setBusy] = useState(false);
@@ -81,7 +84,7 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
             </tr>
           </thead>
           <tbody>
-            {server?.sources.map((s) => (
+            {server?.sources.filter((s) => found(s.agent)).map((s) => (
               <tr key={s.dir}>
                 <td>
                   <label className="chk">
@@ -108,6 +111,7 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
         </table>
         <p className="muted" style={{ fontSize: 12 }}>
           {t('set.harnessHelp')}
+          {missing.length > 0 && ` ${t('set.notFound', { names: missing.map((a) => t(agentKey(a))).join(t('set.listSep')) })}`}
         </p>
       </Card>
       <Card title={t('set.index')}>

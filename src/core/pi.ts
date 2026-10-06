@@ -7,6 +7,7 @@ import {
   type AccState,
   DetailSink,
   addCommit,
+  addCommitRun,
   addFileChange,
   addModel,
   addTool,
@@ -21,6 +22,7 @@ import {
   markTurnEnded,
   newState,
   oneLine,
+  setKnob,
   touch,
 } from './acc.js';
 import { parseTs } from './lines.js';
@@ -34,6 +36,8 @@ interface PiTool {
   path?: string;
   /** Line count of the body a `write` call created. */
   lines?: number;
+  /** Start of a `git commit` command, to match a commit that printed no id by time. */
+  commitAt?: number;
 }
 
 interface PiX {
@@ -149,6 +153,9 @@ export function piRecord(s: AccState, d: Json, sink?: DetailSink, responses?: Ma
     case 'model_change':
       addModel(s, typeof d.modelId === 'string' ? d.modelId : undefined);
       return;
+    case 'thinking_level_change':
+      setKnob(s, 'effort', d.thinkingLevel ?? d.level);
+      return;
     case 'compaction':
       s.compactions++;
       touch(s, ts);
@@ -211,6 +218,7 @@ function assistantRecord(s: AccState, x: PiX, d: Json, ts: number, sink?: Detail
   touch(s, ts);
   const model = typeof m.model === 'string' ? m.model : undefined;
   if (model) addModel(s, model);
+  setKnob(s, 'effort', m.thinkingLevel);
 
   if (m.usage && typeof m.usage === 'object') {
     // Per-request counts, not cumulative, so nothing has to be de-duplicated.
@@ -266,6 +274,7 @@ function toolCall(s: AccState, x: PiX, b: Json, ts: number, sink?: DetailSink): 
   if (name === 'bash') {
     const command = typeof args.command === 'string' ? args.command : '';
     if (GIT_COMMIT.test(command)) {
+      tool.commitAt = ts;
       // An empty message is kept: the commit line git prints still names the branch and sha.
       x.cmd[id] = commitMessageFrom(command)?.slice(0, 200) ?? '';
     }
@@ -298,6 +307,7 @@ function toolResultRecord(s: AccState, x: PiX, d: Json, ts: number, sink?: Detai
     }
   }
 
+  if (tool?.commitAt && m.isError !== true) addCommitRun(s, tool.commitAt, ts);
   const expected = id && id in x.cmd ? x.cmd[id] : undefined;
   if (expected !== undefined) {
     const hit = COMMIT_LINE.exec(text);

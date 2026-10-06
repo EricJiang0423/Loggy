@@ -19,6 +19,8 @@ Loggy is a local dashboard for your **Claude Code**, **Codex**, **Kimi Code** an
   - **Stars, labels and notes:** star a session, label it discussing / in progress / later / done, and keep a note
 - **Timeline.** The conversation as chat bubbles: everything, without intermediate output, or only your inputs (numbered). `AskUserQuestion` prompts appear as question cards with your answer marked.
 - **Live status.** Running sessions update within about 0.1 s of a new log line. Each session is classified as *running*, *stalled* (a tool call has been open for a while, maybe waiting for approval), *needs input*, *done*, *leftover* or *stopped midway*. Claude Code writes `~/.claude/sessions/<pid>.json` while it runs; Loggy reads it, so a session waiting for approval or an answer shows *needs input* right away.
+- **Pi.** Reads `~/.pi/agent/sessions` (contributed by @KaiOnCode): sessions, tokens, edits, commits, compactions, interrupts and failed requests like the other tools; a `/fork` or `/clone` session is one session with its parent.
+- **Only the harnesses you have.** Loggy looks for each tool's logs, command and desktop app and shows only what is on this machine; Settings lists the ones it found and names the others once, and the handoff only offers installed tools.
 - **Kimi Code.** Loggy reads each session's event log in `~/.kimi-code/sessions`: sessions, subagents, tokens and equivalent cost, edited files, commits, the timeline, questions and pending approvals show up like those of the other two tools. Sessions are titled with their name in Kimi Code (the latest rename).
 - **Harness settings.** For every turn Loggy records the settings it ran with, and counts how often each was switched: permission mode (default / plan / auto / bypass, Codex's approval policy, Kimi's manual / yolo / auto), reasoning effort, model, plan mode, sandbox, multi-agent / swarm, goal, fast mode and where it was started (desktop app or CLI). The session detail has a *Harness settings* card with the switches, the efficiency page sums up each setting per harness, and the session list can be filtered by a setting.
 - **Choose your harnesses.** Pick any combination of harnesses on the sessions and efficiency pages; turn a harness off in Settings and it is no longer indexed or counted anywhere.
@@ -62,10 +64,10 @@ Requires **Node.js 22.12+** (22.15+ to read compressed `.jsonl.zst` Codex logs).
 
 ```sh
 # run once without installing
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.7.0/loggy-0.7.0.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.8.0/loggy-0.8.0.tgz
 
 # or install the `loggy` command
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.7.0/loggy-0.7.0.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.8.0/loggy-0.8.0.tgz
 loggy
 ```
 

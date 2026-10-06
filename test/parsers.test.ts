@@ -878,3 +878,21 @@ describe('pi edge cases', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 });
+
+test('Pi: thinking level as a harness setting, and a quiet commit kept for matching by time', () => {
+  const t = (s: number) => new Date(Date.UTC(2026, 9, 3, 9, 0, s)).toISOString();
+  const msg = (s: number, message: object) => ({ type: 'message', id: `m${s}`, parentId: null, timestamp: t(s), message });
+  const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 };
+  const f = writeLines('2026-10-03T09-00-00-000Z_0b0b0b0b-1111-4111-8111-111111111111.jsonl', [
+    { type: 'session', version: 3, id: '0b0b0b0b-1111-4111-8111-111111111111', timestamp: t(0), cwd: '/w/p' },
+    { type: 'thinking_level_change', id: 'k1', parentId: null, timestamp: t(1), thinkingLevel: 'high' },
+    msg(2, { role: 'user', content: [{ type: 'text', text: 'commit it' }] }),
+    msg(3, { role: 'assistant', content: [{ type: 'toolCall', id: 'c1', name: 'bash', arguments: { command: 'git commit -qam wip' } }], model: 'm', usage, stopReason: 'toolUse' }),
+    msg(6, { role: 'toolResult', toolCallId: 'c1', toolName: 'bash', content: [{ type: 'text', text: '' }], isError: false }),
+    msg(7, { role: 'assistant', content: [{ type: 'text', text: 'Done.' }], model: 'm', usage, stopReason: 'stop' }),
+  ]);
+  const { summary: s } = summarizeFile(f, 'pi');
+  expect(s.knobs?.effort).toEqual({ high: 1 });
+  expect(s.commits).toBe(0);
+  expect(s.commitRuns).toEqual([[Date.parse(t(3)), Date.parse(t(6))]]);
+});

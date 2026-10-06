@@ -81,7 +81,7 @@ class ForkFilter {
 }
 
 /** Every Pi entry type Loggy reads; anything else (custom entries, hooks) is skipped unparsed. */
-const PI_TYPES = ['session', 'message', 'session_info', 'model_change', 'compaction', 'usage', 'branch_summary'];
+const PI_TYPES = ['session', 'message', 'session_info', 'model_change', 'thinking_level_change', 'compaction', 'usage', 'branch_summary'];
 const ROLE = Buffer.from('"role":"');
 
 function initState(agent: Agent, file: string): AccState {

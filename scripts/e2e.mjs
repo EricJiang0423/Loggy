@@ -95,15 +95,13 @@ try {
 
       // Harness chips: show Kimi Code only, then all again; a Kimi session shows its harness settings.
       const chips = page.locator('.toolbar .pill:has(.harness-dot)');
-      if ((await chips.count()) !== 3) failures.push(`[${tag}] expected 3 harness chips, got ${await chips.count()}`);
-      await chips.nth(0).click();
-      await chips.nth(1).click();
-      await page.waitForFunction(() => [...document.querySelectorAll('.row .badge')].every((b) => b.classList.contains('kimi') || !['claude', 'codex'].some((a) => b.classList.contains(a))));
+      if ((await chips.count()) !== 4) failures.push(`[${tag}] expected 4 harness chips, got ${await chips.count()}`);
+      for (const i of [0, 1, 3]) await chips.nth(i).click(); // Claude Code, Codex, Pi off: Kimi Code only
+      await page.waitForFunction(() => [...document.querySelectorAll('.row .badge')].every((b) => b.classList.contains('kimi') || !['claude', 'codex', 'pi'].some((a) => b.classList.contains(a))));
       if (!(await page.locator('.row .badge.kimi').count())) failures.push(`[${tag}] no Kimi Code sessions listed`);
       await page.locator('.row').first().click();
       await page.waitForSelector('.detail-head .badge.kimi');
-      await chips.nth(0).click();
-      await chips.nth(1).click();
+      for (const i of [0, 1, 3]) await chips.nth(i).click();
       await page.waitForSelector('.row .badge.claude');
 
       // Search

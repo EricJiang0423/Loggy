@@ -30,6 +30,8 @@ Loggy 是 **Claude Code**、**Codex**、**Kimi Code** 和 **Pi** 会话的本地
   - 中途结束
 
   Claude Code 运行时会写 `~/.claude/sessions/<pid>.json`，Loggy 读取它，所以等你确认权限或回答问题时会立刻显示「等你回复」。
+- **Pi**：读取 `~/.pi/agent/sessions`（由 @KaiOnCode 贡献），会话、token、改动、提交、压缩、中断和失败的请求都和其他工具一样显示；`/fork` 和 `/clone` 出来的会话和原会话算一个。
+- **自动识别本机的 Harness**：检查每个工具的日志目录、命令行工具和桌面应用，只显示本机有的；设置里列出检测到的，其余的只提一句，接力也只给出本机装了的工具。
 - **Kimi Code**：读取 `~/.kimi-code/sessions` 里每个会话的事件日志，会话、子代理、token 和等价费用、改动的文件、提交、时间线、提问和等待批准都和另外两个工具一样显示；标题用 Kimi Code 里的会话名（改过名就用最新的）。
 - **Harness 设置统计**：记录每一轮在什么设置下运行，以及会话中切换了几次：权限模式（如 default / plan / auto / bypass、Codex 的审批策略、Kimi 的 manual / yolo / auto）、思考强度、模型、Plan 模式、沙箱、多代理 / Swarm、Goal、快速模式和入口（桌面应用或 CLI）。会话详情里有「Harness 设置」卡片和切换记录，效率页按 Harness 汇总各设置的轮次占比，会话列表可以按某个设置筛选。
 - **Harness 开关和选择**：会话页和效率页可以多选要看的 Harness；设置里可以关掉某个 Harness，关掉后不再索引、不计入任何统计。
@@ -73,10 +75,10 @@ Git 页：提交图、每轮对话的提交和 diff：
 
 ```sh
 # 不安装，直接运行一次
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.7.0/loggy-0.7.0.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.8.0/loggy-0.8.0.tgz
 
 # 或者安装 loggy 命令
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.7.0/loggy-0.7.0.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.8.0/loggy-0.8.0.tgz
 loggy
 ```
 

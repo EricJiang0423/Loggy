@@ -13,6 +13,7 @@ import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
 import { gitLines, gitLog, gitShow, linkCommits } from './git.js';
 import { findGitProjects, type GitProject } from './gitprojects.js';
+import { detectHarnesses } from './harnesses.js';
 import { handOff, TARGETS, type Target } from './launch.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
@@ -60,6 +61,12 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
     generation: indexer.gen,
     groupBy: indexer.groupBy,
     harnesses: indexer.enabled,
+    installed: detectHarnesses({
+      claude: cfg.claudeDirs.map((d) => path.join(d, 'projects')),
+      codex: cfg.codexDirs.map((d) => path.join(d, 'sessions')),
+      kimi: (cfg.kimiDirs ?? []).map((d) => path.join(d, 'sessions')),
+      pi: cfg.piDirs,
+    }),
   });
 
   /** Projects whose folder is a git repository. */

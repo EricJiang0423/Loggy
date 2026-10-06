@@ -150,16 +150,16 @@ Pi documents this format in `docs/session-format.md` of [earendil-works/pi](http
 
 Loggy records, for every turn, the settings in effect and counts how often each was changed.
 
-| setting | Claude Code | Codex | Kimi Code |
-|---|---|---|---|
-| permission | `permissionMode` on inputs and `permission-mode` records | `turn_context.approval_policy` | `permission.set_mode` |
-| plan | permission mode `plan` | `turn_context.collaboration_mode.mode` = `plan` | `plan_mode.enter` / `.exit` |
-| effort | `effort` (or `perTurnEffort`) on replies | `turn_context.effort` | `thinkingEffort` |
-| model | `message.model` | `turn_context.model` | `usage.record.model` |
-| sandbox | | `turn_context.sandbox_policy.type` | |
-| multiAgent / swarm / goal | | `multi_agent_version` | swarm mode, goal |
-| speed | `message.usage.speed` (`fast` in fast mode) | | |
-| surface | `entrypoint` | `session_meta.originator` | |
+| setting | Claude Code | Codex | Kimi Code | Pi |
+|---|---|---|---|---|
+| permission | `permissionMode` on inputs and `permission-mode` records | `turn_context.approval_policy` | `permission.set_mode` |  |
+| plan | permission mode `plan` | `turn_context.collaboration_mode.mode` = `plan` | `plan_mode.enter` / `.exit` |  |
+| effort | `effort` (or `perTurnEffort`) on replies | `turn_context.effort` | `thinkingEffort` | `thinkingLevel` on replies, `thinking_level_change` |
+| model | `message.model` | `turn_context.model` | `usage.record.model` | `message.model`, `model_change` |
+| sandbox | | `turn_context.sandbox_policy.type` | |  |
+| multiAgent / swarm / goal | | `multi_agent_version` | swarm mode, goal |  |
+| speed | `message.usage.speed` (`fast` in fast mode) | | |  |
+| surface | `entrypoint` | `session_meta.originator` | |  |
 
 A mode switched on and off again within one turn counts as on for that turn.
 

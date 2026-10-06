@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-10-07
 
 ### Added
 
-- **Pi sessions as a third source.** Loggy reads `~/.pi/agent/sessions` (or `$PI_CODING_AGENT_SESSION_DIR`) next to Claude Code and Codex: `--pi-dir` points at another session directory. Turns, tokens, models, tool calls, diffs, compactions, interrupts and failed requests come from the session entries; `session_info` gives the title. Since Pi writes no git metadata, commits come from the `[branch sha] message` line a `git commit` prints and the branch is read from the repository on disk. A session made with `/fork` or `/clone` is shown as one session with its parent, the way continued Codex threads are. Agent filters, the calendar legend, the comparison table, the demo data and `docs/log-formats.md` cover Pi as well.
+- **Pi sessions** (contributed by @KaiOnCode, #2). Loggy reads `~/.pi/agent/sessions` (or `$PI_CODING_AGENT_SESSION_DIR`) next to the other harnesses: `--pi-dir` points at another session directory. Turns, tokens, models, tool calls, diffs, compactions, interrupts and failed requests come from the session entries; `session_info` gives the title. Since Pi writes no git metadata, commits come from the `[branch sha] message` line a `git commit` prints and the branch is read from the repository on disk. A session made with `/fork` or `/clone` is shown as one session with its parent, the way continued Codex threads are. Agent filters, the calendar legend, the comparison table, the demo data and `docs/log-formats.md` cover Pi as well. Pi sessions also record their thinking level as a harness setting, match quiet commits by time, and resume with `pi --session <id>`.
+- **Only the harnesses on this machine.** Loggy checks for each harness's logs, its command-line tool and its desktop app. Settings lists only those it found (and names the others once), and the handoff only offers tools that are installed; filters and comparisons already follow the sessions there are.
+- **Hand off to a new conversation in one click** and split hints for long sessions (see the README).
 
 ## 0.7.0 - 2026-10-07
 

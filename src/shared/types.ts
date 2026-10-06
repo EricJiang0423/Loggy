@@ -297,6 +297,17 @@ export interface ServerState {
   groupBy: 'smart' | 'repo' | 'git' | 'folder';
   /** Harnesses turned on in Settings. */
   harnesses: Record<Agent, boolean>;
+  /** Which harnesses are on this machine (logs, command-line tool or desktop app). */
+  installed: HarnessInfo[];
+}
+
+export interface HarnessInfo {
+  agent: Agent;
+  /** Logs, the command or the app was found. */
+  installed: boolean;
+  logs: boolean;
+  command: boolean;
+  app: boolean;
 }
 
 export interface InstructionFile {

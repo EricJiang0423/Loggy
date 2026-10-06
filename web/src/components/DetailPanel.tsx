@@ -4,7 +4,7 @@ import { api } from '../api';
 import { compact, dateTime, duration, money, pct, relative, shortPath, time } from '../format';
 import { useI18n, type Key } from '../i18n';
 import { refreshSessions, useStore } from '../store';
-import { AgentBadge, Card, CopyButton, KNOBS, knobKey, LABELS, Star, StatusBadge, usePersisted } from './common';
+import { AgentBadge, agentKey, Card, CopyButton, KNOBS, knobKey, LABELS, Star, StatusBadge, usePersisted } from './common';
 import { splitReasons } from '../split';
 import { Timeline } from './Timeline';
 
@@ -133,7 +133,7 @@ function Header({
   const { t, lang } = useI18n();
   const now = useStore((x) => x.now);
   const tokens = s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite;
-  const tool = s.agent === 'claude' ? 'claude --resume ' + s.sessionId : s.agent === 'kimi' ? 'kimi --resume ' + s.sessionId : s.agent === 'pi' ? 'pi --continue' : 'codex resume ' + s.sessionId;
+  const tool = s.agent === 'claude' ? 'claude --resume ' + s.sessionId : s.agent === 'kimi' ? 'kimi --resume ' + s.sessionId : s.agent === 'pi' ? 'pi --session ' + s.sessionId : 'codex resume ' + s.sessionId;
   const resume = s.isSubagent ? undefined : `cd ${quote(s.cwd)} && ${tool}`;
   const list = useStore((x) => x.list);
   const next = useMemo(() => list.filter((x) => x.continues === s.id), [list, s.id]);
@@ -233,7 +233,10 @@ function Header({
 function HandoffBar({ s, detail }: { s: SessionSummary; detail: SessionDetail }) {
   const { t, lang } = useI18n();
   const aiOn = useStore((x) => x.server?.aiAvailable);
-  const [to, setTo] = usePersisted<'claude' | 'codex'>('loggy.handoffTo', s.agent === 'codex' ? 'codex' : 'claude');
+  const installed = useStore((x) => x.server?.installed);
+  // Only harnesses on this machine can take over (unknown until the server answered).
+  const canRun = (a: string) => !installed || installed.some((i) => i.agent === a && (i.command || i.app));
+  const [to, setTo] = usePersisted<'claude' | 'codex'>('loggy.handoffTo', s.agent === 'codex' || !canRun('claude') ? 'codex' : 'claude');
   const [target, setTarget] = usePersisted<'cmux' | 'terminal' | 'app' | 'copy'>('loggy.handoffTarget', 'cmux');
   const [msg, setMsg] = useState<{ text: string; err?: boolean; manual?: string } | undefined>();
   useEffect(() => setMsg(undefined), [s.id]);
@@ -274,8 +277,13 @@ function HandoffBar({ s, detail }: { s: SessionSummary; detail: SessionDetail })
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
       <select className="sel" value={to} onChange={(e) => setTo(e.target.value as typeof to)} aria-label={t('handoff.to')}>
-        <option value="claude">Claude Code</option>
-        <option value="codex">Codex</option>
+        {(['claude', 'codex'] as const)
+          .filter((a) => a === to || canRun(a))
+          .map((a) => (
+            <option key={a} value={a}>
+              {t(agentKey(a))}
+            </option>
+          ))}
       </select>
       <select className="sel" value={target} onChange={(e) => setTarget(e.target.value as typeof target)} aria-label={t('handoff.target')}>
         {(['cmux', 'terminal', 'app', 'copy'] as const).map((x) => (
