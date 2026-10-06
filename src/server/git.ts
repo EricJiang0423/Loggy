@@ -17,6 +17,9 @@ export interface GitCommit {
   author: string;
   date: string;
   subject: string;
+  parents: string[];
+  /** branch and tag names pointing here */
+  refs: string[];
   added: number;
   removed: number;
   files: number;
@@ -24,9 +27,9 @@ export interface GitCommit {
 
 const SHA = /^[0-9a-f]{4,40}$/;
 
-/** Newest first. `q` searches messages, `path` keeps commits that touched it. */
+/** Commits of all local branches, children before parents. `q` searches messages, `path` keeps commits that touched it. */
 export async function gitLog(root: string, o: { q?: string; path?: string; limit?: number }): Promise<GitCommit[]> {
-  const args = ['log', `--max-count=${Math.min(o.limit ?? 300, 2000)}`, '--format=%x1e%H%x1f%an%x1f%aI%x1f%s', '--numstat', '--no-color'];
+  const args = ['log', '--branches', 'HEAD', '--topo-order', `--max-count=${Math.min(o.limit ?? 300, 2000)}`, '--format=%x1e%H%x1f%an%x1f%aI%x1f%P%x1f%D%x1f%s', '--numstat', '--no-color'];
   if (o.q) args.push('-i', `--grep=${o.q}`);
   args.push('--');
   if (o.path) args.push(o.path);
@@ -35,8 +38,18 @@ export async function gitLog(root: string, o: { q?: string; path?: string; limit
   for (const chunk of out.split('\x1e')) {
     if (!chunk.trim()) continue;
     const [head, ...rest] = chunk.split('\n');
-    const [sha, author, date, subject] = head.split('\x1f');
-    const c: GitCommit = { sha, author, date, subject: subject ?? '', added: 0, removed: 0, files: 0 };
+    const [sha, author, date, parents, refs, subject] = head.split('\x1f');
+    const c: GitCommit = {
+      sha,
+      author,
+      date,
+      subject: subject ?? '',
+      parents: parents ? parents.split(' ') : [],
+      refs: refs ? refs.split(', ').map((r) => r.replace(/^HEAD -> /, '')).filter((r) => r !== 'HEAD') : [],
+      added: 0,
+      removed: 0,
+      files: 0,
+    };
     for (const line of rest) {
       const m = /^(\d+|-)\t(\d+|-)\t/.exec(line);
       if (!m) continue;

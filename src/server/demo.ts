@@ -22,6 +22,8 @@ export interface DemoExpectation {
   questions: number;
   subagent: boolean;
   running: boolean;
+  /** Commits the session made; makeDemoRepos turns them into real ones. */
+  made?: { sha: string; ts: number; msg: string; cwd: string; branch: string }[];
 }
 
 export interface DemoOptions {
@@ -260,6 +262,7 @@ function claudeSession(
       t += r.int(2, 8) * 1000;
       const sha = r.hex(7);
       const doPush = r.chance(0.5);
+      (exp.made ??= []).push({ sha, ts: t, msg, cwd: project.cwd, branch: project.branch });
       push({ promptId, type: 'user', message: { role: 'user', content: [{ tool_use_id: toolId, type: 'tool_result', content: `[${project.branch} ${sha}] ${msg}` }] }, toolUseResult: { stdout: `[${project.branch} ${sha}] ${msg}`, stderr: '', interrupted: false, isImage: false, noOutputExpected: false, gitOperation: doPush ? { commit: { sha, kind: 'committed' }, push: { branch: project.branch } } : { commit: { sha, kind: 'committed' } } } });
       exp.commits++;
       if (doPush) exp.pushes++;
@@ -376,6 +379,7 @@ function codexSession(r: Rng, root: string, project: (typeof PROJECTS)[number], 
     } else {
       if (touched.size && r.chance(0.5)) {
         const sha = r.hex(7);
+        (exp.made ??= []).push({ sha, ts: t, msg: 'Tidy handlers', cwd: project.cwd, branch: project.branch });
         rec('response_item', { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"git commit -am wip"}', call_id: `call_${r.hex(20)}` });
         rec('event_msg', { type: 'item_completed', thread_id: id, turn_id: turnId, item: { type: 'CommandExecution', id: r.hex(8), command: ['/bin/zsh', '-lc', 'git commit -am "Tidy handlers"'], aggregated_output: `[${project.branch} ${sha}] Tidy handlers\n 2 files changed`, exit_code: 0, status: 'completed' } });
         exp.commits++;
@@ -401,8 +405,13 @@ const DEMO_RULES = [
   '\n## Release\n\n- Update CHANGELOG.md with every user-visible change.\n',
 ];
 
-/** Creates small git repositories with a CLAUDE.md / AGENTS.md history for the demo projects. */
-export function makeDemoRepos(projectsRoot: string, now = Date.now(), days = 21): void {
+/**
+ * Creates small git repositories for the demo projects: a CLAUDE.md / AGENTS.md history, then the
+ * commits the demo sessions made (their logs are rewritten to the real ids). A project that works
+ * on a feature branch merges it into main halfway.
+ */
+export function makeDemoRepos(projectsRoot: string, exps: DemoExpectation[] = [], now = Date.now(), days = 21): void {
+  const made = exps.flatMap((e) => (e.made ?? []).map((m) => ({ ...m, file: e.file }))).sort((a, b) => a.ts - b.ts);
   for (const p of PROJECTS) {
     const dir = path.join(projectsRoot, path.basename(p.cwd));
     fs.mkdirSync(dir, { recursive: true });
@@ -410,7 +419,7 @@ export function makeDemoRepos(projectsRoot: string, now = Date.now(), days = 21)
       const git = (args: string[], when?: number) =>
         execFileSync('git', args, {
           cwd: dir,
-          stdio: 'ignore',
+          stdio: ['ignore', 'pipe', 'ignore'],
           env: {
             ...process.env,
             GIT_AUTHOR_NAME: 'Demo',
@@ -419,8 +428,8 @@ export function makeDemoRepos(projectsRoot: string, now = Date.now(), days = 21)
             GIT_COMMITTER_EMAIL: 'demo@example.invalid',
             ...(when ? { GIT_AUTHOR_DATE: new Date(when).toISOString(), GIT_COMMITTER_DATE: new Date(when).toISOString() } : {}),
           },
-        });
-      git(['init', '-q']);
+        }).toString();
+      git(['init', '-q', '-b', 'main']);
       let text = '';
       DEMO_RULES.forEach((rule, i) => {
         text += rule;
@@ -429,6 +438,27 @@ export function makeDemoRepos(projectsRoot: string, now = Date.now(), days = 21)
         fs.writeFileSync(path.join(dir, file), prev + rule);
         git(['add', file]);
         git(['commit', '-q', '-m', `Update ${file}: ${rule.trim().split('\n')[0].replace(/^#+\s*/, '')}`], now - (days - i * 5) * 86400_000);
+      });
+      const mine = made.filter((m) => path.basename(m.cwd) === path.basename(p.cwd) && m.ts > now - (days - (DEMO_RULES.length - 1) * 5) * 86400_000);
+      if (!mine.length) continue;
+      if (p.branch !== 'main') git(['checkout', '-q', '-b', p.branch]);
+      const half = Math.floor(mine.length / 2);
+      mine.forEach((m, i) => {
+        if (p.branch !== 'main' && i === half && i > 0) {
+          git(['checkout', '-q', 'main']);
+          fs.appendFileSync(path.join(dir, 'CHANGELOG.md'), `- ${m.msg}\n`);
+          git(['add', 'CHANGELOG.md']);
+          git(['commit', '-q', '-m', 'Update CHANGELOG'], m.ts - 120_000);
+          git(['merge', '-q', '--no-ff', '-m', `Merge branch '${p.branch}'`, p.branch], m.ts - 60_000);
+          git(['checkout', '-q', p.branch]);
+        }
+        const rel = path.join(p.dirs[i % p.dirs.length], 'changes.md');
+        fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+        fs.appendFileSync(path.join(dir, rel), `- ${m.msg}\n`);
+        git(['add', rel]);
+        git(['commit', '-q', '-m', m.msg], m.ts);
+        const sha = git(['rev-parse', '--short=7', 'HEAD']).trim();
+        fs.writeFileSync(m.file, fs.readFileSync(m.file, 'utf8').replaceAll(m.sha, sha));
       });
     } catch {
       // git missing: the instructions page just shows the files without history.

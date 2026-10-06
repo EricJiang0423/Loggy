@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
-import { compact, dateTime, duration, money } from '../format';
+import { compact, dateTime, displayTitle, duration, money } from '../format';
 import { useI18n, type Key } from '../i18n';
 import { AgentBadge, Star, StatusBadge } from './common';
 
@@ -62,7 +62,7 @@ export function SessionList({ sessions, selected, onSelect }: { sessions: Sessio
         <div className="title">
           <Star s={s} />
           <StatusBadge s={s} />
-          <span className="t">{(s.titleSource === 'prompt' || s.titleSource === 'none') && s.ai ? s.ai.title : s.title || s.sessionId}</span>
+          <span className="t">{displayTitle(s)}</span>
         </div>
         <div className="right num">
           {(s.linesAdded > 0 || s.linesRemoved > 0) && (

@@ -109,9 +109,12 @@ try {
       // Git: commits with a diff, then lines of code
       await page.goto(`${url}/#/git`);
       await page.waitForSelector('.gitview .ver', { timeout: 15000 });
-      const subject = (await page.locator('.gitview .ver .subj').nth(1).textContent()).trim();
-      await page.locator('.gitview .ver').nth(1).click();
+      await page.waitForSelector('.gitview .git-graph circle');
+      const row = page.locator('.gitview .ver:has(.git-sess)').nth(1); // a commit some session made
+      const subject = (await row.locator('.subj').evaluate((e) => [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(''))).trim();
+      await row.click();
       await page.waitForFunction((s) => document.querySelector('pre.git-msg')?.textContent?.trim() === s, subject, { timeout: 15000 });
+      await page.waitForSelector('.gt-turn .gt-commit.sel', { timeout: 15000 }); // its session, turn by turn
       await page.screenshot({ path: path.join(out, `git-${tag}.png`) });
       await page.getByRole('button', { name: lang === 'en' ? 'Lines of code' : '代码行数' }).click();
       await page.waitForSelector('svg.chart path', { timeout: 30000 });

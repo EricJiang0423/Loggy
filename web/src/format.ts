@@ -1,3 +1,4 @@
+import type { SessionSummary } from '../../src/shared/types';
 import type { Lang } from './i18n';
 
 const nf = new Map<string, Intl.NumberFormat>();
@@ -141,4 +142,9 @@ export function addDays(ts: number, n: number): number {
 
 export function shortPath(p: string): string {
   return p.replace(/^\/(Users|home)\/[^/]+/, '~');
+}
+
+/** The AI title replaces a title that is only the first prompt. */
+export function displayTitle(s: SessionSummary): string {
+  return (s.titleSource === 'prompt' || s.titleSource === 'none') && s.ai ? s.ai.title : s.title || s.sessionId;
 }

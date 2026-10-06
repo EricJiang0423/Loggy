@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { gitLines, gitLog, gitShow } from '../src/server/git';
+import { graphLayout } from '../web/src/gitGraph';
 
 let repo = '';
 let data = '';
@@ -64,4 +65,41 @@ test('lines per top-level folder at the last commit of each day', async () => {
   expect(Object.keys(r.series)).not.toContain('(root)'); // package-lock.json is skipped
   const again = await gitLines(repo, data); // cached
   expect(again).toEqual(r);
+});
+
+test('log covers every branch with parents and branch names', async () => {
+  git(['checkout', '-q', '-b', 'side', 'HEAD~1']);
+  write('side.txt', 's\n');
+  git(['add', '.']);
+  git(['commit', '-q', '-m', 'On side'], '2026-10-03T10:00:00Z');
+  git(['checkout', '-q', 'main']);
+  const all = await gitLog(repo, {});
+  expect(all.map((c) => c.subject).sort()).toEqual(['Add a', 'Add b', 'Extend a and add docs', 'On side']);
+  const side = all.find((c) => c.subject === 'On side')!;
+  expect(side.refs).toEqual(['side']);
+  expect(side.parents).toEqual([all.find((c) => c.subject === 'Extend a and add docs')!.sha]);
+  expect(all.find((c) => c.subject === 'Add b')!.refs).toEqual(['main']);
+});
+
+test('graph lanes: a branch splits off and the history joins again', () => {
+  // a <- b <- d (main), a <- c (side), m merges d and c
+  const { rows, width } = graphLayout([
+    { sha: 'm', parents: ['d', 'c'] },
+    { sha: 'd', parents: ['b'] },
+    { sha: 'c', parents: ['a'] },
+    { sha: 'b', parents: ['a'] },
+    { sha: 'a', parents: [] },
+  ]);
+  expect(width).toBe(2);
+  expect(rows.map((r) => r.lane)).toEqual([0, 0, 1, 0, 0]);
+  expect(rows[0].segs).toEqual([
+    [0, 0.5, 0, 1],
+    [0, 0.5, 1, 1],
+  ]);
+  expect(rows[4].segs).toEqual([
+    [0, 0, 0, 0.5],
+    [1, 0, 0, 0.5],
+  ]);
+  // a parent outside the list leaves no dangling lane
+  expect(graphLayout([{ sha: 'x', parents: ['gone'] }, { sha: 'y', parents: [] }]).rows.map((r) => r.lane)).toEqual([0, 0]);
 });

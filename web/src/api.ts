@@ -40,6 +40,8 @@ export interface GitCommitRow {
   author: string;
   date: string;
   subject: string;
+  parents: string[];
+  refs: string[];
   added: number;
   removed: number;
   files: number;

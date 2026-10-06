@@ -26,7 +26,7 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loggy-demo-'));
     const projectsRoot = path.join(root, 'work');
     const exps = generateDemo(root, { projectsRoot });
-    makeDemoRepos(projectsRoot);
+    makeDemoRepos(projectsRoot, exps);
     cfg.claudeDirs = [path.join(root, 'claude')];
     cfg.codexDirs = [path.join(root, 'codex')];
     cfg.dataDir = ensureDir(path.join(root, 'data'));
@@ -72,8 +72,9 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
   const close = async () => {
     if (demoTimer) clearInterval(demoTimer);
     indexer.close();
-    await new Promise<void>((r) => server.close(() => r()));
-    server.closeAllConnections?.();
+    const closed = new Promise<void>((r) => server.close(() => r()));
+    server.closeAllConnections?.(); // an open page keeps its event stream (and the server) alive
+    await closed;
     await pool.close();
   };
   const onSignal = () => {

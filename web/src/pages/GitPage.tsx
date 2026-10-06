@@ -1,10 +1,31 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { CommitInfo, SessionDetail } from '../../../src/shared/types';
 import { api, type GitCommitRow, type GitShow } from '../api';
 import { BarChart, Legend, type Series } from '../components/Charts';
 import { DiffView, Seg, useDebounced, usePersisted } from '../components/common';
 import { series as seriesColor } from '../colors';
-import { compact, dateTime, int } from '../format';
+import { compact, dateTime, displayTitle, int } from '../format';
+import { graphLayout, type GraphRow } from '../gitGraph';
 import { useI18n } from '../i18n';
+import { useStore } from '../store';
+
+const LANE = 12;
+const ROW_H = 46;
+const MAX_LANES = 8;
+
+/** The lines and the dot of one commit row. */
+function GraphCell({ row, width, color }: { row: GraphRow; width: number; color?: string }) {
+  const x = (l: number) => l * LANE + LANE / 2 + 2;
+  const w = Math.min(width, MAX_LANES) * LANE + 4;
+  return (
+    <svg width={w} height={ROW_H} className="git-graph" aria-hidden>
+      {row.segs.map(([a, y1, b, y2], i) => (
+        <path key={i} d={a === b ? `M${x(a)} ${y1 * ROW_H}V${y2 * ROW_H}` : `M${x(a)} ${y1 * ROW_H}C${x(a)} ${((y1 + y2) / 2) * ROW_H} ${x(b)} ${((y1 + y2) / 2) * ROW_H} ${x(b)} ${y2 * ROW_H}`} />
+      ))}
+      <circle cx={x(row.lane)} cy={ROW_H / 2} r={color ? 4.5 : 3.5} style={color ? { fill: color, stroke: color } : undefined} />
+    </svg>
+  );
+}
 
 type Tab = 'commits' | 'lines';
 
@@ -23,11 +44,29 @@ export function GitPage({ onOpen }: { onOpen: (sessionId: string) => void }) {
   const [show, setShow] = useState<GitShow | null>(null);
   const [lines, setLines] = useState<{ days: string[]; series: Record<string, number[]> } | null>(null);
   const [err, setErr] = useState<string | undefined>();
+  const list = useStore((st) => st.list);
+  const byId = useMemo(() => new Map(list.map((x) => [x.id, x])), [list]);
+  const graph = useMemo(() => (commits ? graphLayout(commits) : null), [commits]);
+  // each session that made commits gets its own color
+  const colorOf = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of commits ?? []) if (c.session && !m.has(c.session)) m.set(c.session, seriesColor(m.size % 8));
+    return m;
+  }, [commits]);
+  const selCommit = commits?.find((c) => c.sha === sel);
+  const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null);
 
   useEffect(() => {
     api.gitProjects().then((r) => setProjects(r.projects), () => setProjects([]));
   }, []);
   const current = projects?.some((p) => p.path === project) ? project : projects?.[0]?.path ?? '';
+
+  // a commit id belongs to one repository
+  useEffect(() => {
+    setCommits(null);
+    setSel(undefined);
+    setShow(null);
+  }, [current]);
 
   useEffect(() => {
     if (!current || tab !== 'commits') return;
@@ -42,7 +81,7 @@ export function GitPage({ onOpen }: { onOpen: (sessionId: string) => void }) {
   }, [current, tab, dq, dpath]);
 
   useEffect(() => {
-    if (!current || !sel) return setShow(null);
+    if (!current || !sel || !commits?.some((c) => c.sha === sel)) return setShow(null);
     let on = true; // a slower earlier response must not replace the newer one
     api.gitShow(current, sel).then(
       (r) => on && setShow(r),
@@ -51,7 +90,34 @@ export function GitPage({ onOpen }: { onOpen: (sessionId: string) => void }) {
     return () => {
       on = false;
     };
-  }, [current, sel]);
+  }, [current, sel, commits]);
+
+  const selSession = selCommit?.session;
+  useEffect(() => {
+    if (!selSession) return setSessionDetail(null);
+    let on = true;
+    api.session(selSession).then(
+      (d) => on && setSessionDetail(d),
+      () => on && setSessionDetail(null),
+    );
+    return () => {
+      on = false;
+    };
+  }, [selSession]);
+
+  // The selected commit's session, turn by turn, with the commits each turn made.
+  const turns = useMemo(() => {
+    if (!sessionDetail || sessionDetail.summary.id !== selSession) return [];
+    const m = new Map<number, CommitInfo[]>();
+    for (const c of sessionDetail.commits) if (c.sha) m.set(c.turn, [...(m.get(c.turn) ?? []), c]);
+    return [...m].sort((a, b) => a[0] - b[0]).map(([turn, cs]) => ({ turn, prompt: sessionDetail.turns[turn - 1]?.prompt ?? '', commits: cs }));
+  }, [sessionDetail, selSession]);
+  const turnOf = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const x of turns) for (const c of x.commits) m.set(c.sha.slice(0, 7), x.turn);
+    return m;
+  }, [turns]);
+  const listed = (sha: string) => commits?.find((c) => c.sha.startsWith(sha.slice(0, 7)));
 
   useEffect(() => {
     if (!current || tab !== 'lines') return;
@@ -103,18 +169,37 @@ export function GitPage({ onOpen }: { onOpen: (sessionId: string) => void }) {
         <div className="gitview">
           <div className="pane">
             <div className="pane-body">
-              {(commits ?? []).map((c) => (
-                <div key={c.sha} className={`ver ${c.sha === sel ? 'sel' : ''}`} onClick={() => setSel(c.sha)}>
-                  <div className="subj">{c.subject}</div>
-                  <div className="muted num" style={{ fontSize: 11, display: 'flex', gap: 8 }}>
-                    <span className="chip">{c.sha.slice(0, 7)}</span>
-                    <span>{dateTime(Date.parse(c.date), lang)}</span>
-                    <span className="add">+{compact(c.added, lang)}</span>
-                    <span className="del">−{compact(c.removed, lang)}</span>
-                    {c.session && <span className="ink2">● {t('git.bySession')}</span>}
+              {(commits ?? []).map((c, i) => {
+                const owner = c.session ? byId.get(c.session) : undefined;
+                const turn = c.session === selSession ? turnOf.get(c.sha.slice(0, 7)) : undefined;
+                return (
+                  <div key={c.sha} className={`ver gitrow ${c.sha === sel ? 'sel' : ''} ${c.session && c.session === selSession ? 'same' : ''}`} onClick={() => setSel(c.sha)}>
+                    {graph && <GraphCell row={graph.rows[i]} width={graph.width} color={c.session ? colorOf.get(c.session) : undefined} />}
+                    <div className="gitrow-body">
+                      <div className="subj">
+                        {c.refs.map((r) => (
+                          <span key={r} className="git-ref">
+                            {r}
+                          </span>
+                        ))}
+                        {c.subject}
+                      </div>
+                      <div className="muted num gitrow-meta">
+                        <span className="chip">{c.sha.slice(0, 7)}</span>
+                        <span>{dateTime(Date.parse(c.date), lang)}</span>
+                        <span className="add">+{compact(c.added, lang)}</span>
+                        <span className="del">−{compact(c.removed, lang)}</span>
+                        {c.session && (
+                          <span className="git-sess" style={{ color: colorOf.get(c.session) }} title={owner ? displayTitle(owner) : undefined}>
+                            ● {turn ? `${t('git.turn', { n: turn })} · ` : ''}
+                            {owner ? displayTitle(owner) : t('git.session')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {commits && !commits.length && <div className="empty-state">{t('git.none')}</div>}
             </div>
           </div>
@@ -124,12 +209,41 @@ export function GitPage({ onOpen }: { onOpen: (sessionId: string) => void }) {
                 <div className="cards">
                   <section className="card">
                     <pre className="git-msg">{show.message.trim()}</pre>
-                    {commits?.find((c) => c.sha === sel)?.session && (
-                      <button className="btn" onClick={() => onOpen(commits!.find((c) => c.sha === sel)!.session!)}>
+                    {selSession && (
+                      <button className="btn" onClick={() => onOpen(selSession)}>
                         {t('git.openSession')}
                       </button>
                     )}
                   </section>
+                  {turns.length > 0 && (
+                    <section className="card">
+                      <h3>
+                        <span className="h">{t('git.byTurn')}</span>
+                        <span className="muted git-sess">{byId.get(selSession!) ? displayTitle(byId.get(selSession!)!) : ''}</span>
+                      </h3>
+                      {turns.map((x) => (
+                        <div key={x.turn} className="gt-turn">
+                          <div className="gt-prompt">
+                            <span className="muted num">{t('git.turn', { n: x.turn })}</span> {x.prompt.slice(0, 160)}
+                          </div>
+                          {x.commits.map((c) => {
+                            const row = listed(c.sha);
+                            return (
+                              <div
+                                key={c.sha}
+                                className={`gt-commit ${row ? '' : 'off'} ${row?.sha === sel ? 'sel' : ''}`}
+                                onClick={() => row && setSel(row.sha)}
+                                title={row ? undefined : t('git.notListed')}
+                              >
+                                <span className="chip">{c.sha.slice(0, 7)}</span>
+                                <span className="subj">{row?.subject ?? c.message?.split('\n')[0] ?? ''}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </section>
+                  )}
                   <section className="card">
                     <h3>
                       <span className="h">{t('git.files', { n: show.files.length })}</span>
