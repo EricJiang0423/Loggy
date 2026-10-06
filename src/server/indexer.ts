@@ -7,7 +7,7 @@ import path from 'node:path';
 import { PARSER_VERSION, computeOutcome, type AccState } from '../core/acc.js';
 import type { SummaryResult } from '../core/parse.js';
 import { liveStatus } from '../shared/status.js';
-import type { Agent, IndexProgress, SessionMark, SessionSummary, SourceInfo } from '../shared/types.js';
+import { AGENTS, type Agent, type IndexProgress, type SessionMark, type SessionSummary, type SourceInfo } from '../shared/types.js';
 import { ensureDir } from './config.js';
 import type { Pool } from './pool.js';
 import { readCodexThreads } from './codexstate.js';
@@ -35,6 +35,7 @@ export interface Entry {
 export interface Sources {
   claudeDirs: string[];
   codexDirs: string[];
+  kimiDirs?: string[];
 }
 
 interface Discovered {
@@ -66,6 +67,8 @@ export class Indexer extends EventEmitter {
   /** Smart categories (kept by the server). */
   categories?: { sessions: Record<string, string>; projects: Record<string, { category: string }> };
   private known: Discovered[] = [];
+  /** Harnesses turned on in Settings; files of the others are not indexed. */
+  enabled: Record<Agent, boolean> = { claude: true, codex: true, kimi: true };
   readonly cacheFile: string;
 
   constructor(
@@ -151,9 +154,26 @@ export class Indexer extends EventEmitter {
       for (const sub of ['sessions', 'archived_sessions']) walkRollouts(path.join(dir, sub), out, 0);
       info.push({ agent: 'codex', dir, exists: fs.existsSync(path.join(dir, 'sessions')), files: out.length - before, bytes: 0 });
     }
+    for (const dir of this.sources.kimiDirs ?? []) {
+      // sessions/wd_<dir>_<hash>/session_<id>/agents/<agent>/wire.jsonl
+      const sessions = path.join(dir, 'sessions');
+      const before = out.length;
+      for (const wd of readdir(sessions)) {
+        if (!wd.isDirectory() || !wd.name.startsWith('wd_')) continue;
+        for (const sess of readdir(path.join(sessions, wd.name))) {
+          if (!sess.isDirectory() || !sess.name.startsWith('session_')) continue;
+          const agents = path.join(sessions, wd.name, sess.name, 'agents');
+          for (const a of readdir(agents)) {
+            const file = path.join(agents, a.name, 'wire.jsonl');
+            if (a.isDirectory() && fs.existsSync(file)) out.push({ file, agent: 'kimi' });
+          }
+        }
+      }
+      info.push({ agent: 'kimi', dir: sessions, exists: fs.existsSync(sessions), files: out.length - before, bytes: 0 });
+    }
     // Prefer the plain file when both a .jsonl and its .zst copy exist.
     const plain = new Set(out.filter((d) => !d.file.endsWith('.zst')).map((d) => d.file));
-    const result = out.filter((d) => !(d.file.endsWith('.zst') && plain.has(d.file.slice(0, -4))));
+    const result = out.filter((d) => this.enabled[d.agent] && !(d.file.endsWith('.zst') && plain.has(d.file.slice(0, -4))));
     this.sourceInfo = info;
     this.known = result;
     return result;
@@ -306,6 +326,7 @@ export class Indexer extends EventEmitter {
     const roots = [
       ...this.sources.claudeDirs.map((d) => path.join(d, 'projects')),
       ...this.sources.codexDirs.flatMap((d) => [path.join(d, 'sessions'), path.join(d, 'archived_sessions')]),
+      ...(this.sources.kimiDirs ?? []).map((d) => path.join(d, 'sessions')),
     ];
     let pending = false;
     const kick = () => {
@@ -400,9 +421,26 @@ export class Indexer extends EventEmitter {
   }
 
   private agentOf(file: string): Agent | undefined {
+    const agent = this.agentOfPath(file);
+    return agent && this.enabled[agent] ? agent : undefined;
+  }
+
+  private agentOfPath(file: string): Agent | undefined {
     if (this.sources.claudeDirs.some((d) => file.startsWith(path.join(d, 'projects')))) return 'claude';
     if (this.sources.codexDirs.some((d) => file.startsWith(d)) && /rollout-.*\.jsonl(\.zst)?$/.test(file)) return 'codex';
+    if ((this.sources.kimiDirs ?? []).some((d) => file.startsWith(path.join(d, 'sessions'))) && path.basename(file) === 'wire.jsonl') return 'kimi';
     return undefined;
+  }
+
+  /** Turns harnesses on or off; a harness turned off is dropped from the index and not watched. */
+  setHarnesses(h: Partial<Record<Agent, boolean>>, rescan = true): void {
+    const next = Object.fromEntries(AGENTS.map((a) => [a, h[a] !== false])) as Record<Agent, boolean>;
+    if (AGENTS.every((a) => next[a] === this.enabled[a])) return;
+    this.enabled = next;
+    if (!rescan) return;
+    this.gen++;
+    this.removedFloor = this.gen;
+    void this.scan();
   }
 
   close(): void {
@@ -437,6 +475,13 @@ export class Indexer extends EventEmitter {
       if (name) {
         s.title = name;
         s.titleSource = 'custom';
+      }
+    }
+    for (const s of merged) {
+      const t = s.agent === 'kimi' && !s.isSubagent ? this.kimiTitle(s.file) : undefined;
+      if (t) {
+        s.title = t.title;
+        s.titleSource = t.custom ? 'custom' : 'ai';
       }
     }
     groupProjects(merged, this.groupBy, (cwd) => this.place(cwd), undefined, app.projects);
@@ -572,6 +617,30 @@ export class Indexer extends EventEmitter {
       for (const [k, v] of r.projects) projects.set(k, v);
     }
     return { names, projects };
+  }
+
+  /** Current title of a Kimi Code session (state.json changes on a rename without a log line). */
+  private kimiTitles = new Map<string, { mtime: number; title?: string; custom: boolean }>();
+  private kimiTitle(file: string): { title: string; custom: boolean } | undefined {
+    const state = path.join(path.dirname(path.dirname(path.dirname(file))), 'state.json');
+    let mtime = 0;
+    try {
+      mtime = fs.statSync(state).mtimeMs;
+    } catch {
+      return undefined;
+    }
+    let hit = this.kimiTitles.get(state);
+    if (!hit || hit.mtime !== mtime) {
+      hit = { mtime, custom: false };
+      try {
+        const d = JSON.parse(fs.readFileSync(state, 'utf8'));
+        if (typeof d.title === 'string' && d.title.trim()) hit = { mtime, title: d.title.trim(), custom: !!d.isCustomTitle };
+      } catch {
+        // being rewritten; keep the parsed title
+      }
+      this.kimiTitles.set(state, hit);
+    }
+    return hit.title ? { title: hit.title, custom: hit.custom } : undefined;
   }
 
   // ---------- live Claude processes ----------

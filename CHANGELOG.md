@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 - 2026-10-07
+
+### Added
+
+- **Kimi Code support.** Loggy reads the event logs in `~/.kimi-code/sessions` (or `$KIMI_CODE_HOME`, or `--kimi-dir`): sessions and subagents, tokens and equivalent cost (context windows from Kimi's `config.toml`), edited files, commits, the timeline, questions, interrupts and compactions. A session with an open approval or question shows *needs input*. Titles follow renames in Kimi Code, and the detail view offers `kimi --resume`.
+- **Harness settings.** Every turn records the settings it ran with: permission mode, reasoning effort, model, plan mode, sandbox (Codex), multi-agent (Codex), swarm mode and goal (Kimi Code), fast mode (Claude Code) and where it was started. The session detail shows them with a log of switches, the efficiency page sums them up per harness (share of turns, number of switches), and the session list can be filtered by any setting.
+- **Choose your harnesses.** The sessions and efficiency pages take any combination of Claude Code, Codex and Kimi Code. Settings → Data sources can turn a harness off; it is then not indexed or counted anywhere.
+
+### Changed
+
+- **Summaries in the chosen language.** The language rule is part of the system prompt and repeated after the transcript; an answer in another language is asked for once more and never saved if it is still wrong. Summaries saved earlier in the wrong language are redone, and smart category names are checked the same way. A session whose summary failed is retried after a day instead of every hour.
+- The comparison on the efficiency page covers every harness.
+
 ## 0.6.1 - 2026-10-07
 
 ### Fixed

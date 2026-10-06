@@ -12,6 +12,8 @@ export interface Config {
   claudeDirs: string[];
   /** Codex homes (each containing sessions/ and archived_sessions/). */
   codexDirs: string[];
+  /** Kimi Code homes (each containing sessions/). */
+  kimiDirs?: string[];
   dataDir: string;
   aiModel: string;
   version: string;
@@ -28,6 +30,10 @@ export function defaultClaudeDirs(): string[] {
 
 export function defaultCodexDirs(): string[] {
   return [process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex')];
+}
+
+export function defaultKimiDirs(): string[] {
+  return [process.env.KIMI_CODE_HOME ? path.resolve(process.env.KIMI_CODE_HOME) : path.join(os.homedir(), '.kimi-code')];
 }
 
 export function defaultDataDir(): string {

@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-Loggy is a local dashboard for your **Claude Code** and **Codex** sessions. It reads the logs both tools already write to disk and shows each session as a bar on a week calendar, with a detail view, a timeline of the conversation, a completion check, and efficiency analytics. You don't need to install hooks, change your config, or put anything in your repositories.
+Loggy is a local dashboard for your **Claude Code**, **Codex** and **Kimi Code** sessions. It reads the logs these tools already write to disk and shows each session as a bar on a week calendar, with a detail view, a timeline of the conversation, a completion check, and efficiency analytics. You don't need to install hooks, change your config, or put anything in your repositories.
 
 ![Week calendar with session detail and timeline](docs/images/calendar-zh.png)
 
@@ -19,17 +19,20 @@ Loggy is a local dashboard for your **Claude Code** and **Codex** sessions. It r
   - **Stars, labels and notes:** star a session, label it discussing / in progress / later / done, and keep a note
 - **Timeline.** The conversation as chat bubbles: everything, without intermediate output, or only your inputs (numbered). `AskUserQuestion` prompts appear as question cards with your answer marked.
 - **Live status.** Running sessions update within about 0.1 s of a new log line. Each session is classified as *running*, *stalled* (a tool call has been open for a while, maybe waiting for approval), *needs input*, *done*, *leftover* or *stopped midway*. Claude Code writes `~/.claude/sessions/<pid>.json` while it runs; Loggy reads it, so a session waiting for approval or an answer shows *needs input* right away.
+- **Kimi Code.** Loggy reads each session's event log in `~/.kimi-code/sessions`: sessions, subagents, tokens and equivalent cost, edited files, commits, the timeline, questions and pending approvals show up like those of the other two tools. Sessions are titled with their name in Kimi Code (the latest rename).
+- **Harness settings.** For every turn Loggy records the settings it ran with, and counts how often each was switched: permission mode (default / plan / auto / bypass, Codex's approval policy, Kimi's manual / yolo / auto), reasoning effort, model, plan mode, sandbox, multi-agent / swarm, goal, fast mode and where it was started (desktop app or CLI). The session detail has a *Harness settings* card with the switches, the efficiency page sums up each setting per harness, and the session list can be filtered by a setting.
+- **Choose your harnesses.** Pick any combination of harnesses on the sessions and efficiency pages; turn a harness off in Settings and it is no longer indexed or counted anywhere.
 - **Claude Code rewind.** A rewind (or continuing in a new session) forks the conversation into a new file that starts with a copy of the old one. Loggy shows them as one session, counts the copy once and marks the rewound turns.
 - **Efficiency.** The page covers:
   - spend, agent working time, the time the agent spent waiting for you, sessions, commits, lines changed, cache hit rate and peak parallel sessions, each compared with the previous period
   - daily charts and an hour × weekday heatmap
-  - a Claude Code vs Codex comparison, a per-project table and the estimated output speed per model
+  - a comparison of the harnesses and of their settings, a per-project table and the estimated output speed per model
   - a "worth a look" list of sessions that burned money without output, ran close to the context limit, looped on tools, or ended with uncommitted edits
 - **Projects.** Sessions are grouped by git remote, git root or working folder (Settings). The default, smart grouping, first uses the project you put a thread in in the Codex app, then the remote when it is known (from git, the Codex log or a Claude PR link), and also places sessions whose folder has since been deleted. Codex sessions are titled with the thread name from the Codex app (the latest rename).
 - **Git.** The commit graph of all local branches, each commit colored by the session that made it. Open a commit for its changed files and diff, and for what each turn of that session committed. Search by message, filter by path, and see lines of code per folder over time.
 - **Instructions & Memory.** The git history of `CLAUDE.md` / `AGENTS.md` in each project, with diffs and the number of sessions that ran under each version.
 - **Chinese and English UI**, light and dark themes, keyboard navigation (↑/↓ or j/k in the list).
-- **Optional AI summaries and smart categories.** Every summary has the same layout: title, what happened, decisions, not verified, concerns, open questions, next steps, request status, work type and whether the work is complete. Make them by hand, or turn on automatic summaries: every session of the last 7 days gets one, a session that changes is updated once a day, and the sessions are grouped into a few categories. Works with the Anthropic API or a model your company runs.
+- **Optional AI summaries and smart categories.** Every summary has the same layout: title, what happened, decisions, not verified, concerns, open questions, next steps, request status, work type and whether the work is complete. Make them by hand, or turn on automatic summaries: every session of the last 7 days gets one, a session that changes is updated once a day, and the sessions are grouped into a few categories. Works with the Anthropic API or a model your company runs. Summaries and categories are written in the language chosen in Settings; an answer in another language is asked for again and never saved.
 
 | Efficiency | Session list (dark) |
 |---|---|
@@ -53,10 +56,10 @@ Requires **Node.js 22.12+** (22.15+ to read compressed `.jsonl.zst` Codex logs).
 
 ```sh
 # run once without installing
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.6.1/loggy-0.6.1.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.7.0/loggy-0.7.0.tgz
 
 # or install the `loggy` command
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.6.1/loggy-0.6.1.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.7.0/loggy-0.7.0.tgz
 loggy
 ```
 
@@ -75,10 +78,11 @@ npm ci && npm run build && npm start
 
 ```
 loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
-      [--claude-dir <dir>]... [--codex-dir <dir>]... [--data-dir <dir>] [--ai-model <id>]
+      [--claude-dir <dir>]... [--codex-dir <dir>]... [--kimi-dir <dir>]...
+      [--data-dir <dir>] [--ai-model <id>]
 ```
 
-By default Loggy reads `$CLAUDE_CONFIG_DIR` and `~/.claude/projects`, and `$CODEX_HOME` or `~/.codex/sessions` plus `archived_sessions`. Pass `--claude-dir` / `--codex-dir` more than once to include several accounts.
+By default Loggy reads `$CLAUDE_CONFIG_DIR` and `~/.claude/projects`, `$CODEX_HOME` or `~/.codex/sessions` plus `archived_sessions`, and `$KIMI_CODE_HOME` or `~/.kimi-code/sessions`. Pass `--claude-dir` / `--codex-dir` / `--kimi-dir` more than once to include several accounts.
 
 ### AI summaries (optional)
 
@@ -94,7 +98,7 @@ Set them up in **Settings → AI summaries** to get the **Generate AI summary** 
 
 Without saved settings Loggy uses the `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` environment variables. The default model is `claude-haiku-4-5`; change it with `--ai-model` or `LOGGY_AI_MODEL`.
 
-**Automatic summaries.** With *Summarize the last 7 days automatically* on, Loggy checks every hour: sessions of the last 7 days without a summary get one, and a session that changed is summarized again at most once a day. Running sessions wait until they stop. The summary language is set once in Settings, and every summary uses the same layout whatever the model; summaries in an older layout are replaced on the next run.
+**Automatic summaries.** With *Summarize the last 7 days automatically* on, Loggy checks every hour: sessions of the last 7 days without a summary get one, and a session that changed is summarized again at most once a day. Running sessions wait until they stop. The summary language is set once in Settings, and every summary uses the same layout whatever the model; summaries in an older layout or in the wrong language are replaced on the next run. When the model answers in another language it is asked once more; if it still does, the session counts as failed and is tried again a day later.
 
 **Smart categories.** After an automatic run (at most once a day) the model says in one sentence what each project is doing, groups the projects into 4–8 categories and puts every recent session in one. Earlier category names are offered back so they and their colors stay stable. Color the calendar by *AI category*; Settings shows what each category means and can rebuild them. Stored in `~/.loggy/categories.json`.
 

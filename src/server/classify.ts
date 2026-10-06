@@ -4,6 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { inLanguage, languageRule } from './ai.js';
 
 export interface ClassifyInput {
   id: string;
@@ -37,7 +38,6 @@ function json(text: string): any {
   return JSON.parse(body.slice(from, to + 1));
 }
 
-const language = (lang: string) => (lang.startsWith('zh') ? 'Simplified Chinese' : 'English');
 
 export async function classifySessions(list: ClassifyInput[], complete: Complete, o: { lang: string; previous?: string[]; model?: string }): Promise<Categories> {
   const byProject = new Map<string, ClassifyInput[]>();
@@ -47,7 +47,7 @@ export async function classifySessions(list: ClassifyInput[], complete: Complete
   // Step 1: what each project is doing.
   const step1 = json(
     await complete(
-      `STEP 1. For each project, write one short sentence in ${language(o.lang)} saying what it is about and what was done in it recently, based on its session titles. Reply with only JSON: {"projects": [{"key": "P1", "description": "..."}]}.`,
+      `STEP 1. For each project, write one short sentence saying what it is about and what was done in it recently, based on its session titles. Reply with only JSON: {"projects": [{"key": "P1", "description": "..."}]}. ${languageRule(o.lang)}`,
       projects.map((p) => `${p.key} ${p.name} (${p.items.length} sessions): ${p.items.slice(0, MAX_TITLES).map((s) => s.title.slice(0, 60)).join(' | ')}`).join('\n'),
     ),
   );
@@ -55,12 +55,14 @@ export async function classifySessions(list: ClassifyInput[], complete: Complete
 
   // Step 2: a few broad categories, and each project's category.
   const prev = o.previous?.length ? `\nCategories used before (reuse a name when it still fits): ${o.previous.join(', ')}` : '';
-  const step2 = json(
-    await complete(
-      `STEP 2. Group these projects into 4 to 8 broad categories of work. Category names are short (at most 12 characters in Chinese or 3 words in English), in ${language(o.lang)}, distinct and not overlapping. Every project gets exactly one category. Reply with only JSON: {"categories": [{"name": "...", "description": "one sentence"}], "projects": [{"key": "P1", "category": "..."}]}.${prev}`,
-      projects.map((p) => `${p.key} ${p.name}: ${desc.get(p.key) ?? ''}`).join('\n'),
-    ),
-  );
+  const step2Prompt = `STEP 2. Group these projects into 4 to 8 broad categories of work. Category names are short (at most 12 characters in Chinese or 3 words in English), distinct and not overlapping. Every project gets exactly one category. Reply with only JSON: {"categories": [{"name": "...", "description": "one sentence"}], "projects": [{"key": "P1", "category": "..."}]}. ${languageRule(o.lang)}${prev}`;
+  const step2Input = projects.map((p) => `${p.key} ${p.name}: ${desc.get(p.key) ?? ''}`).join('\n');
+  let step2 = json(await complete(step2Prompt, step2Input));
+  const named = (x: any) => (x.categories ?? []).flatMap((c: { name?: unknown; description?: unknown }) => [String(c?.name ?? ''), String(c?.description ?? '')]);
+  if (!inLanguage(named(step2), o.lang)) {
+    // One more try when the names came back in the wrong language.
+    step2 = json(await complete(`${step2Prompt}\nA previous answer used the wrong language. ${languageRule(o.lang)}`, step2Input));
+  }
   const categories: Categories['categories'] = (step2.categories ?? [])
     .filter((c: { name?: unknown }) => typeof c?.name === 'string' && c.name.trim())
     .map((c: { name: string; description?: string }) => ({ name: c.name.trim(), description: String(c.description ?? '') }));

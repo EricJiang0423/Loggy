@@ -143,8 +143,36 @@ export function transcriptFor(d: Omit<SessionDetail, 'ai'>): string {
   return text;
 }
 
+export const languageName = (lang: string) => (lang.startsWith('zh') ? 'Simplified Chinese' : 'English');
+
+/** The language rule, stated in the system prompt and again after the transcript. */
+export const languageRule = (lang: string) =>
+  `Write every text value in ${languageName(lang)}, even when the transcript or the session titles are in another language. Keep code, file paths, commands and product or model names as they are.`;
+
+const HAN = /\p{Script=Han}/gu;
+
+/**
+ * Whether text is in the wanted language: Chinese needs mostly Chinese characters, English almost
+ * none. Code spans, paths, URLs and dotted names are left out, since they stay as they are.
+ */
+export function inLanguage(texts: string[], lang: string): boolean {
+  const text = texts.join('\n').replace(/`[^`]*`/g, ' ').replace(/\S*[/\\.:_]\S*/g, ' ');
+  const han = (text.match(HAN) ?? []).length;
+  const words = (text.match(/[A-Za-z]{2,}/g) ?? []).length;
+  if (han + words < 3) return true;
+  const share = han / (han + words);
+  return lang.startsWith('zh') ? share >= 0.4 : share < 0.1;
+}
+
+/** Every free-text value of a summary. */
+export function summaryTexts(s: Pick<AiSummary, 'title' | 'bullets' | 'decisions' | 'unverified' | 'concerns' | 'openQuestions' | 'nextSteps' | 'requests'>): string[] {
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const reqs = Array.isArray(s.requests) ? s.requests.map((q) => (typeof q?.text === 'string' ? q.text : '')) : [];
+  return [typeof s.title === 'string' ? s.title : '', ...list(s.bullets), ...list(s.decisions), ...list(s.unverified), ...list(s.concerns), ...list(s.openQuestions), ...list(s.nextSteps), ...reqs];
+}
+
 const SYSTEM = `You summarize a coding-agent session for the person who ran it, so they can see at a glance what happened.
-Write in the requested language. Be concrete and short; do not invent facts that are not in the transcript.
+Be concrete and short; do not invent facts that are not in the transcript.
 Every summary has the same fields, in this order. Lists may be empty; never add other fields.
 - title: what the session was about, at most 60 characters, no trailing period.
 - bullets: 2-6 short points on what was done or found, each one sentence.
@@ -205,23 +233,31 @@ export async function complete(c: AiConfig, system: string, user: string, maxTok
   return msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
 }
 
-export async function summarizeWithAi(dataDir: string, c: AiConfig, detail: Omit<SessionDetail, 'ai'>, lang: string): Promise<AiSummary> {
-  const language = lang.startsWith('zh') ? 'Simplified Chinese' : 'English';
-  const user = `Language: ${language}\n\n<transcript>\n${transcriptFor(detail)}\n</transcript>`;
-  let parsed: z.infer<typeof SummarySchema>;
+async function summaryOnce(c: AiConfig, system: string, user: string): Promise<z.infer<typeof SummarySchema>> {
   if (c.provider === 'anthropic' && !c.baseURL) {
     // The Anthropic API enforces the schema; gateways and other models get a JSON instruction.
     const response = await anthropicClient(c).messages.parse({
       model: c.model,
       max_tokens: 4000,
-      system: SYSTEM,
+      system,
       messages: [{ role: 'user', content: user }],
       output_config: { format: zodOutputFormat(SummarySchema) },
     });
     if (!response.parsed_output) throw new Error(response.stop_reason === 'refusal' ? 'The model declined to summarize this session.' : 'The model returned no summary.');
-    parsed = response.parsed_output;
-  } else {
-    parsed = parseSummaryJson(await complete(c, `${SYSTEM}\n\n${JSON_SHAPE}`, user, 8000));
+    return response.parsed_output;
+  }
+  return parseSummaryJson(await complete(c, `${system}\n\n${JSON_SHAPE}`, user, 8000));
+}
+
+export async function summarizeWithAi(dataDir: string, c: AiConfig, detail: Omit<SessionDetail, 'ai'>, lang: string): Promise<AiSummary> {
+  const language = languageName(lang);
+  const system = `${SYSTEM}\n\nLanguage: ${languageRule(lang)}`;
+  const user = `<transcript>\n${transcriptFor(detail)}\n</transcript>\n\n${languageRule(lang)}`;
+  let parsed = await summaryOnce(c, system, user);
+  if (!inLanguage(summaryTexts(parsed), lang)) {
+    // Models drift into the transcript's language; ask once more, then give up rather than save it.
+    parsed = await summaryOnce(c, system, `${user}\n\nA previous answer was not written in ${language}. Every text value must be in ${language}.`);
+    if (!inLanguage(summaryTexts(parsed), lang)) throw new Error(`The model did not write the summary in ${language}.`);
   }
   const s = detail.summary;
   const summary: AiSummary = { ...parsed, id: s.id, format: SUMMARY_FORMAT, lang, model: c.model, createdAt: Date.now(), basis: { end: s.end, turns: s.turns } };

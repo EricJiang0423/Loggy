@@ -15,7 +15,7 @@ import type {
 } from '../shared/types.js';
 import { contextWindowFor, costOf, type UsageForCost } from './pricing.js';
 
-export const PARSER_VERSION = 7;
+export const PARSER_VERSION = 8;
 const BUCKET_MS = 600_000;
 const WAIT_CAP_MS = 30 * 60_000;
 const IDLE_SPLIT_MS = 30 * 60_000;
@@ -33,6 +33,10 @@ export interface TurnAcc {
   ended: boolean;
   commits: number;
   rewound?: boolean;
+  /** Harness settings in effect during the turn (permission mode, effort, model, ...). */
+  k?: Record<string, string>;
+  /** Modes switched on during this turn (they count as used even if switched off again). */
+  kOn?: string[];
 }
 
 export interface AccState {
@@ -91,6 +95,9 @@ export interface AccState {
   ctxParts?: [number, number, number];
   speed?: Record<string, [number, number]>;
   shas?: string[];
+  /** Current harness settings, and how often each one changed. */
+  knobCur?: Record<string, string>;
+  knobSw?: Record<string, number>;
   /** When `git commit` commands ran: [start, end] ms (a quiet commit prints no id). */
   commitRuns?: [number, number][];
   /** Agent-specific scratch space (must stay JSON-serializable and bounded). */
@@ -187,6 +194,7 @@ export function beginTurn(s: AccState, ts: number, prompt: string, isInput = tru
     prev.ended = true;
   }
   const turn: TurnAcc = {
+    ...(s.knobCur && Object.keys(s.knobCur).length ? { k: { ...s.knobCur } } : {}),
     start: ts,
     end: ts,
     prompt: prompt.slice(0, 300),
@@ -212,8 +220,29 @@ export function currentTurn(s: AccState): TurnAcc | undefined {
   return s.turns[s.turns.length - 1];
 }
 
+/**
+ * Records a harness setting (permission mode, reasoning effort, plan mode, ...). The open turn
+ * takes the value, later turns start with it, and a change of value counts as a switch.
+ */
+export function setKnob(s: AccState, knob: string, value: unknown): void {
+  if (typeof value !== 'string' || !value) return;
+  const cur = (s.knobCur ??= {});
+  if (cur[knob] !== undefined && cur[knob] !== value) {
+    const sw = (s.knobSw ??= {});
+    sw[knob] = (sw[knob] ?? 0) + 1;
+  }
+  cur[knob] = value;
+  const t = currentTurn(s);
+  if (!t || t.ended) return;
+  // A mode switched on and off again within one turn still counts as used in that turn.
+  if (value === 'on') (t.kOn ??= []).push(knob);
+  else if (value === 'off' && t.kOn?.includes(knob)) return;
+  (t.k ??= {})[knob] = value;
+}
+
 export function addModel(s: AccState, model: string | undefined): void {
   if (!model || model === '<synthetic>') return;
+  setKnob(s, 'model', model);
   s.lastModel = model;
   if (!s.models.includes(model)) s.models.push(model);
 }
@@ -346,6 +375,13 @@ export function finalize(s: AccState): SessionSummary {
     }
   }
   const last = turns[turns.length - 1];
+  const knobs: Record<string, Record<string, number>> = {};
+  for (const t of turns) {
+    for (const [k, v] of Object.entries(t.k ?? {})) {
+      const m = (knobs[k] ??= {});
+      m[v] = (m[v] ?? 0) + 1;
+    }
+  }
   const fileEntries = Object.entries(s.files);
   let added = 0;
   let removed = 0;
@@ -429,6 +465,8 @@ export function finalize(s: AccState): SessionSummary {
     speed: s.speed,
     commitShas: s.shas,
     commitRuns: s.commitRuns,
+    knobs: Object.keys(knobs).length ? knobs : undefined,
+    knobSwitches: s.knobSw,
     component,
     hasPlan: s.hasPlan,
     badLines: s.badLines,
@@ -480,6 +518,7 @@ export function buildTurnDetails(s: AccState, sink: DetailSink, responses: Map<n
     interrupted: t.interrupted,
     ended: t.ended,
     ...(t.rewound ? { rewound: true } : {}),
+    ...(t.k ? { knobs: t.k } : {}),
   }));
 }
 

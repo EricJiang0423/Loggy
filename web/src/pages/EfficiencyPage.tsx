@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
 import { agentColor, series as seriesColor } from '../colors';
 import { BarChart, DataTable, Heatmap, Legend, type Series } from '../components/Charts';
-import { Seg, StatusBadge, useThemeVersion } from '../components/common';
+import { agentKey, HarnessFilter, KNOBS, knobKey, Seg, StatusBadge, usePersisted, useThemeVersion } from '../components/common';
 import { addDays, comparablePeriod, compact, earliestStart, duration, hours, int, money, pct, shortDay, startOfDay, weekday } from '../format';
 import { useI18n, type Key } from '../i18n';
 import { useStore } from '../store';
@@ -10,6 +10,7 @@ import { useStore } from '../store';
 type Range = '7' | '30' | '90' | 'all';
 const BUCKET = 600_000;
 const DAY = 86400_000;
+const AGENT_ORDER = ['claude', 'codex', 'kimi'];
 
 interface Agg {
   cost: number;
@@ -57,12 +58,15 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const list = useStore((s) => s.list);
   const now = useStore((s) => s.now);
   const [range, setRange] = useState<Range>('30');
-  const [agent, setAgent] = useState<'all' | 'claude' | 'codex'>('all');
+  const [harnessList, setHarnessList] = usePersisted<string>('loggy.harnesses', '');
+  const harnesses = useMemo(() => harnessList.split(',').filter(Boolean), [harnessList]);
+  const present = useMemo(() => [...new Set(list.map((s) => s.agent as string))].sort((a, b) => AGENT_ORDER.indexOf(a) - AGENT_ORDER.indexOf(b)), [list]);
+  const shown = present.filter((a) => !harnesses.length || harnesses.includes(a));
   const [project, setProject] = useState('');
   const [tables, setTables] = useState<Record<string, boolean>>({});
 
   const projects = useMemo(() => [...new Map(list.map((s) => [s.projectPath, s.project])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [list]);
-  const scoped = useMemo(() => list.filter((s) => (agent === 'all' || s.agent === agent) && (!project || s.projectPath === project)), [list, agent, project]);
+  const scoped = useMemo(() => list.filter((s) => (!harnesses.length || harnesses.includes(s.agent)) && (!project || s.projectPath === project)), [list, harnesses, project]);
 
   const earliest = useMemo(() => earliestStart(scoped, now), [scoped, now]);
   const days = range === 'all' ? Math.max(7, Math.ceil((now - startOfDay(earliest)) / DAY) + 1) : Number(range);
@@ -84,7 +88,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
       starts.push(d);
       labels.push(shortDay(d, lang));
     }
-    const cost: Record<string, number[]> = { claude: Array(days).fill(0), codex: Array(days).fill(0) };
+    const cost: Record<string, number[]> = Object.fromEntries(AGENT_ORDER.map((a) => [a, Array(days).fill(0)]));
     const active = Array(days).fill(0);
     const wait = Array(days).fill(0);
     const peakMaps: Map<number, number>[] = Array.from({ length: days }, () => new Map());
@@ -128,7 +132,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   }, [scoped, from, to]);
 
   const cmp = useMemo(() => {
-    const rows = (['claude', 'codex'] as const).map((a) => {
+    const rows = shown.map((a) => {
       const g = aggregate(
         list.filter((s) => s.agent === a && (!project || s.projectPath === project)),
         from,
@@ -137,7 +141,28 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
       return { a, g };
     });
     return rows;
-  }, [list, project, from, to]);
+  }, [list, project, from, to, shown.join()]);
+
+  // Harness settings per harness: share of turns run with each value, and how often it changed.
+  const knobStats = useMemo(() => {
+    const out = new Map<string, Map<string, { vals: Map<string, number>; turns: number; switches: number }>>();
+    for (const s of scoped) {
+      if (s.isSubagent || s.start < from || s.start >= to) continue;
+      const per = out.get(s.agent) ?? new Map();
+      out.set(s.agent, per);
+      for (const [k, vals] of Object.entries(s.knobs ?? {})) {
+        const st = per.get(k) ?? { vals: new Map(), turns: 0, switches: 0 };
+        per.set(k, st);
+        for (const [v, n] of Object.entries(vals)) {
+          st.vals.set(v, (st.vals.get(v) ?? 0) + n);
+          st.turns += n;
+        }
+        st.switches += s.knobSwitches?.[k] ?? 0;
+      }
+    }
+    const knobs = KNOBS.filter((k) => [...out.values()].some((per) => [...(per.get(k)?.vals.keys() ?? [])].some((v) => v !== 'off')));
+    return { out, knobs };
+  }, [scoped, from, to]);
 
   const byProject = useMemo(() => {
     const m = new Map<string, { name: string; path: string; g: Agg }>();
@@ -189,10 +214,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const hit = cur.cacheBase ? (cur.cacheRead / cur.cacheBase) * 100 : 0;
   const prevHit = prev && prev.cacheBase ? (prev.cacheRead / prev.cacheBase) * 100 : undefined;
 
-  const costSeries: Series[] = [
-    { key: 'claude', label: t('agent.claude'), color: agentColor('claude'), values: daily.cost.claude },
-    { key: 'codex', label: t('agent.codex'), color: agentColor('codex'), values: daily.cost.codex },
-  ].filter((s) => agent === 'all' || s.key === agent);
+  const costSeries: Series[] = shown.map((a) => ({ key: a, label: t(agentKey(a)), color: agentColor(a), values: daily.cost[a] }));
   const timeSeries: Series[] = [
     { key: 'active', label: t('chart.working'), color: seriesColor(2), values: daily.active },
     { key: 'wait', label: t('chart.waiting'), color: seriesColor(3), values: daily.wait },
@@ -223,11 +245,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
           onChange={setRange}
           options={(['7', '30', '90', 'all'] as Range[]).map((r) => ({ value: r, label: t(`range.${r}` as Key) }))}
         />
-        <select className="sel" value={agent} onChange={(e) => setAgent(e.target.value as typeof agent)} aria-label={t('agent.all')}>
-          <option value="all">{t('agent.all')}</option>
-          <option value="claude">{t('agent.claude')}</option>
-          <option value="codex">{t('agent.codex')}</option>
-        </select>
+        <HarnessFilter value={harnesses} onChange={(v) => setHarnessList(v.join(','))} present={present} />
         <select className="sel" value={project} onChange={(e) => setProject(e.target.value)} aria-label={t('sessions.allProjects')}>
           <option value="">{t('sessions.allProjects')}</option>
           {projects.map(([p, n]) => (
@@ -291,7 +309,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
                   {cmp.map(({ a }) => (
                     <th key={a} className="r">
                       <span className="dot" style={{ background: agentColor(a), marginRight: 5 }} />
-                      {t(a === 'claude' ? 'agent.claude' : 'agent.codex')}
+                      {t(agentKey(a))}
                     </th>
                   ))}
                 </tr>
@@ -325,6 +343,50 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
               {t('cmp.note')}
             </div>
           </div>
+          {knobStats.knobs.length > 0 && (
+            <div className="chart-card wide">
+              <h3><span className="h">{t('eff.knobs')}</span></h3>
+              <table className="grid knobs">
+                <thead>
+                  <tr>
+                    <th>{t('cmp.metric')}</th>
+                    {shown.filter((a) => knobStats.out.has(a)).map((a) => (
+                      <th key={a}>
+                        <span className="dot" style={{ background: agentColor(a), marginRight: 5 }} />
+                        {t(agentKey(a))}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {knobStats.knobs.map((k) => (
+                    <tr key={k}>
+                      <td className="nw">{t(knobKey(k))}</td>
+                      {shown.filter((a) => knobStats.out.has(a)).map((a) => {
+                        const st = knobStats.out.get(a)?.get(k);
+                        if (!st || !st.turns) return <td key={a} className="muted">–</td>;
+                        const top = [...st.vals].sort((x, y) => y[1] - x[1]);
+                        return (
+                          <td key={a}>
+                            {top.slice(0, 3).map(([v, n]) => (
+                              <span key={v} className="knob-val">
+                                <span className="mono">{v}</span> {pct((n / st.turns) * 100, lang)}
+                              </span>
+                            ))}
+                            {top.length > 3 && <span className="muted">+{top.length - 3}</span>}
+                            {st.switches > 0 && <div className="muted" style={{ fontSize: 11 }}>{t('eff.switches', { n: st.switches })}</div>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                {t('eff.knobsNote')}
+              </div>
+            </div>
+          )}
           <div className="chart-card">
             <h3><span className="h">{t('proj.title')}</span></h3>
             <div style={{ maxHeight: 300, overflow: 'auto' }}>

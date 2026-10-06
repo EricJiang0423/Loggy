@@ -13,6 +13,7 @@ import {
 } from './acc.js';
 import { claudeRecord, initClaudeState } from './claude.js';
 import { codexFinalizeExtras, codexLine, codexRecord, initCodexState } from './codex.js';
+import { initKimiState, kimiLine } from './kimi.js';
 import { indexIn, scanLines, sniffTypes } from './lines.js';
 
 export interface SummaryResult {
@@ -78,9 +79,13 @@ class ForkFilter {
   }
 }
 
+function initState(agent: Agent, file: string): AccState {
+  return agent === 'claude' ? initClaudeState(file) : agent === 'kimi' ? initKimiState(file) : initCodexState(file);
+}
+
 export function summarizeFile(file: string, agent: Agent, resume?: { state: AccState; offset: number }, opts: { skipFrom?: string[] } = {}): SummaryResult {
   const canResume = resume && resume.state.v === PARSER_VERSION && !file.endsWith('.zst');
-  const state: AccState = canResume ? resume!.state : agent === 'claude' ? initClaudeState(file) : initCodexState(file);
+  const state: AccState = canResume ? resume!.state : initState(agent, file);
   const from = canResume ? resume!.offset : 0;
   let scan;
   if (agent === 'claude') {
@@ -103,6 +108,8 @@ export function summarizeFile(file: string, agent: Agent, resume?: { state: AccS
       if (fork?.skip(state, d)) return;
       claudeRecord(state, d);
     });
+  } else if (agent === 'kimi') {
+    scan = scanLines(file, from, (buf, start, end) => kimiLine(state, buf, start, end));
   } else {
     scan = scanLines(file, from, (buf, start, end) => codexLine(state, buf, start, end));
     codexFinalizeExtras(state);
@@ -124,7 +131,7 @@ export function summarizeFile(file: string, agent: Agent, resume?: { state: AccS
  */
 export function detailFile(files: string | string[], agent: Agent): Omit<SessionDetail, 'ai'> {
   const pages = typeof files === 'string' ? [files] : files;
-  const state = agent === 'claude' ? initClaudeState(pages[0]) : initCodexState(pages[0]);
+  const state = initState(agent, pages[0]);
   const sink = new DetailSink();
   const responses = new Map<number, string>();
   const seen = new Map<string, number>();
@@ -135,6 +142,10 @@ export function detailFile(files: string | string[], agent: Agent): Omit<Session
       for (const t of state.turns) if (t.start > forkTs) t.rewound = true;
       sink.item(at, 'system', 'rewind', state.turns.length);
     };
+    if (agent === 'kimi') {
+      scanLines(file, 0, (buf, start, end) => kimiLine(state, buf, start, end, sink, responses));
+      continue;
+    }
     scanLines(file, 0, (buf, start, end) => {
       if (agent === 'claude' && skipClaude(buf, start, end)) return;
       if (agent === 'codex') {

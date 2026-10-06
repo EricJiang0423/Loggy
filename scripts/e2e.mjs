@@ -93,6 +93,19 @@ try {
       const switchMs = Date.now() - t1;
       await page.screenshot({ path: path.join(out, `sessions-list-${tag}.png`) });
 
+      // Harness chips: show Kimi Code only, then all again; a Kimi session shows its harness settings.
+      const chips = page.locator('.toolbar .pill:has(.harness-dot)');
+      if ((await chips.count()) !== 3) failures.push(`[${tag}] expected 3 harness chips, got ${await chips.count()}`);
+      await chips.nth(0).click();
+      await chips.nth(1).click();
+      await page.waitForFunction(() => [...document.querySelectorAll('.row .badge')].every((b) => b.classList.contains('kimi') || !['claude', 'codex'].some((a) => b.classList.contains(a))));
+      if (!(await page.locator('.row .badge.kimi').count())) failures.push(`[${tag}] no Kimi Code sessions listed`);
+      await page.locator('.row').first().click();
+      await page.waitForSelector('.detail-head .badge.kimi');
+      await chips.nth(0).click();
+      await chips.nth(1).click();
+      await page.waitForSelector('.row .badge.claude');
+
       // Search
       await page.fill('.search input', lang === 'en' ? 'calendar' : '虚拟滚动');
       await page.waitForTimeout(500);
@@ -105,6 +118,7 @@ try {
       await page.waitForSelector('.kpi');
       await page.waitForSelector('svg.chart rect, svg.chart path');
       await page.screenshot({ path: path.join(out, `efficiency-${tag}.png`), fullPage: false });
+      if (!(await page.locator('table.knobs tbody tr').count())) failures.push(`[${tag}] no harness settings table`);
 
       // Git: commits with a diff, then lines of code
       await page.goto(`${url}/#/git`);

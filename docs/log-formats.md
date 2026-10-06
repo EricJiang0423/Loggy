@@ -1,6 +1,6 @@
 # Log formats
 
-What Loggy reads and how. Neither tool documents these files, and both change them between versions, so the parsers ignore unknown record types and fields. The notes below come from Claude Code 2.1.156 to 2.1.288 and Codex CLI 0.142 to 0.159.
+What Loggy reads and how. Neither tool documents these files, and both change them between versions, so the parsers ignore unknown record types and fields. The notes below come from Claude Code 2.1.156 to 2.1.288, Codex CLI 0.142 to 0.159 and Kimi Code 2.0 (wire protocol 1.5).
 
 ## Claude Code
 
@@ -85,6 +85,49 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 - `response_item` messages with role `user` include injected context such as environment and AGENTS.md text. Real user input comes from `UserMessage` items, or `user_message` in older versions.
 - Start and end events don't always pair up, because of forks, resumes and interrupted runs. A missing `task_complete` does not by itself mean the session is still running. Loggy also checks how recently the file changed.
 - Waiting-for-approval events are not persisted.
+
+## Kimi Code
+
+**Location**
+
+- `~/.kimi-code/sessions/wd_<folder>_<hash>/session_<id>/` per session; `$KIMI_CODE_HOME` replaces `~/.kimi-code`.
+- `state.json` in that folder: `id`, `cwd`, `createdAt`, `title` (with `isCustomTitle` / `titleKind`: `custom`, `generated`, `replaceable`), and `agents` (`main`, plus `agent-<n>` with `parentAgentId` for subagents). A rename only changes this file, so Loggy reads the title from it each time.
+- Every agent writes its own event log: `agents/<agent>/wire.jsonl` (`main` and `agent-<n>`).
+- `config.toml` next to `sessions/` lists `max_context_size` per model alias; Loggy uses it for the context %.
+- Resume with `cd <cwd> && kimi --resume <session id>`.
+
+**Records** (one JSON object per line, `type` plus `time` in epoch ms)
+
+- `turn.prompt` starts a turn: `input` (text and image parts), `origin.kind` = `user`, `cron_job` (a scheduled job), `task` (a background task finished), `system_trigger` (`origin.name` = `subagent` for a subagent's prompt, `goal_continuation`). Only `user` prompts are your inputs; the others start turns on their own. `turn.steer` with `origin.kind: user` is an input sent while a turn runs.
+- `turn.ended` closes it: `reason` = `completed`, `cancelled` (interrupted) or `failed` (an API error, with `error`).
+- `usage.record` is the token source: `model` (alias), `usage` = `inputOther`, `inputCacheRead`, `inputCacheCreation`, `output`. `usageScope: turn` records are requests; `usageScope: session` records are compaction calls, which cost tokens but are not the context. `step.end` and the UI copies of messages repeat the same usage.
+- `context.append_loop_event` carries the agent loop: `tool.call` (`name`, `args`), `tool.result` (`output`, `isError`), `content.part` (text the agent wrote), `step.begin` / `step.end` (`usage`, `llmStreamDurationMs`, used for output speed).
+- File edits come from `Edit` (`path`, `old_string`, `new_string`) and `Write` (`path`, `content`) calls whose result is not an error. Commits come from `Bash` commands with `git commit`; the id is read from the output when git printed one.
+- `interaction.request` (`kind`: `approval` or `question`) is open until `interaction.resolved`; while one is open the session needs your input.
+- `task.started` / `task.terminated` track background processes and agents.
+- `context.apply_compaction` is a compaction.
+- `agent.message.appended` (the UI's copy of each message, with full tool outputs and images), `context.append_message`, `llm.request`, `llm.tools_snapshot` and `mcp.tools_discovered` are skipped.
+
+**Harness settings**
+
+- `permission.set_mode` (`mode`: `manual`, `yolo` = ask when needed, `auto` = never ask), `config.update` and `profile.bind` (`thinkingEffort`: `off`, `on`, `high`, `max`; `modelAlias`), `plan_mode.enter` / `.exit`, `swarm_mode.enter` / `.exit`, `goal.create` / `goal.update` (`status: complete`) / `goal.clear`.
+
+## Harness settings
+
+Loggy records, for every turn, the settings in effect and counts how often each was changed.
+
+| setting | Claude Code | Codex | Kimi Code |
+|---|---|---|---|
+| permission | `permissionMode` on inputs and `permission-mode` records | `turn_context.approval_policy` | `permission.set_mode` |
+| plan | permission mode `plan` | `turn_context.collaboration_mode.mode` = `plan` | `plan_mode.enter` / `.exit` |
+| effort | `effort` (or `perTurnEffort`) on replies | `turn_context.effort` | `thinkingEffort` |
+| model | `message.model` | `turn_context.model` | `usage.record.model` |
+| sandbox | | `turn_context.sandbox_policy.type` | |
+| multiAgent / swarm / goal | | `multi_agent_version` | swarm mode, goal |
+| speed | `message.usage.speed` (`fast` in fast mode) | | |
+| surface | `entrypoint` | `session_meta.originator` | |
+
+A mode switched on and off again within one turn counts as on for that turn.
 
 ## Derived values
 

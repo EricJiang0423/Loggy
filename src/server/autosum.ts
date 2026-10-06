@@ -2,7 +2,7 @@
 // summarized again at most once a day. Runs only when the user turned it on in Settings.
 
 import type { AiSummary, SessionDetail, SessionSummary } from '../shared/types.js';
-import { SUMMARY_FORMAT, aiErrorMessage, complete, readAllAiSummaries, summarizeWithAi, type AiConfig, type AiSettings } from './ai.js';
+import { SUMMARY_FORMAT, aiErrorMessage, complete, inLanguage, readAllAiSummaries, summarizeWithAi, summaryTexts, type AiConfig, type AiSettings } from './ai.js';
 import { classifySessions, readCategories, writeCategories, type Categories } from './classify.js';
 
 export { SUMMARY_FORMAT };
@@ -26,6 +26,8 @@ export function needsSummary(s: Pick<SessionSummary, 'end' | 'turns' | 'status'>
   if (s.turns === 0 || now - s.end > days * DAY) return false;
   if (s.status === 'running' || s.status === 'needs_input' || s.status === 'stalled') return false; // wait until it stops
   if (!saved || saved.format !== SUMMARY_FORMAT || saved.lang !== lang) return true;
+  // Saved before the language was checked, in the wrong language.
+  if (!inLanguage(summaryTexts(saved), lang)) return true;
   const changed = !saved.basis || saved.basis.end !== s.end || saved.basis.turns !== s.turns;
   return changed && now - saved.createdAt >= DAY;
 }
@@ -33,6 +35,8 @@ export function needsSummary(s: Pick<SessionSummary, 'end' | 'turns' | 'status'>
 export class AutoSummarizer {
   status: AutoStatus = { running: false, done: 0, pending: 0, failed: 0 };
   readonly saved: Map<string, AiSummary>;
+  /** Sessions whose summary failed, and when: retried after a day, not every hour. */
+  private failedAt = new Map<string, number>();
   private timers: NodeJS.Timeout[] = [];
 
   constructor(
@@ -103,7 +107,7 @@ export class AutoSummarizer {
     const now = Date.now();
     const todo = this.o
       .summaries()
-      .filter((s) => !s.isSubagent && needsSummary(s, this.saved.get(s.id), now, lang, AUTO_DAYS))
+      .filter((s) => !s.isSubagent && now - (this.failedAt.get(s.id) ?? 0) >= DAY && needsSummary(s, this.saved.get(s.id), now, lang, AUTO_DAYS))
       .sort((a, b) => b.end - a.end);
     this.status = { running: true, lastRun: now, done: 0, pending: todo.length, failed: 0 };
     try {
@@ -116,6 +120,7 @@ export class AutoSummarizer {
             this.status.done++;
           }
         } catch (err) {
+          this.failedAt.set(s.id, Date.now());
           this.status.failed++;
           this.status.lastError = aiErrorMessage(err);
           if (this.status.failed >= 3 && this.status.done === 0) break; // endpoint is down or misconfigured

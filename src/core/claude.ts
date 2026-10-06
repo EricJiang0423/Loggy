@@ -21,6 +21,7 @@ import {
   markInterrupted,
   markTurnEnded,
   newState,
+  setKnob,
   oneLine,
   touch,
 } from './acc.js';
@@ -158,7 +159,12 @@ export function claudeRecord(s: AccState, d: Json, sink?: DetailSink, responses?
   if (typeof d.cwd === 'string' && d.cwd && !s.cwd) s.cwd = d.cwd;
   if (typeof d.gitBranch === 'string' && d.gitBranch && d.gitBranch !== 'HEAD') s.branch = d.gitBranch;
   if (typeof d.version === 'string') s.version = d.version;
-  if (typeof d.entrypoint === 'string' && !s.entrypoint) s.entrypoint = d.entrypoint;
+  if (typeof d.entrypoint === 'string' && !s.entrypoint) {
+    s.entrypoint = d.entrypoint;
+    setKnob(s, 'surface', d.entrypoint);
+  }
+  // Inputs and mode switches carry the permission mode; plan mode is one of them.
+  if (typeof d.permissionMode === 'string' && type !== 'user') knobsFromMode(s, d.permissionMode);
 
   switch (type) {
     case 'user':
@@ -209,7 +215,18 @@ export function claudeRecord(s: AccState, d: Json, sink?: DetailSink, responses?
   }
 }
 
+function knobsFromMode(s: AccState, mode: string): void {
+  setKnob(s, 'permission', mode);
+  setKnob(s, 'plan', mode === 'plan' ? 'on' : 'off');
+}
+
 function userRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: DetailSink): void {
+  // After a new turn starts (below) the mode belongs to it; on other records it applies as is.
+  userRecordInner(s, x, d, ts, sink);
+  if (typeof d.permissionMode === 'string') knobsFromMode(s, d.permissionMode);
+}
+
+function userRecordInner(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: DetailSink): void {
   const msg = d.message ?? {};
   const content = msg.content;
   if (d.toolUseResult !== undefined || hasToolResult(content)) {
@@ -337,6 +354,9 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
     return;
   }
   if (model && model !== '<synthetic>') addModel(s, model);
+  // Reasoning effort of this reply (a per-turn override wins) and fast mode.
+  setKnob(s, 'effort', d.perTurnEffort ?? d.effort);
+  setKnob(s, 'speed', msg.usage?.speed);
   if (s.isSubagent && !s.turns.length) beginTurn(s, ts, '(subagent)');
 
   const u = msg.usage;

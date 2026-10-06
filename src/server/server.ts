@@ -5,7 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { completionOf } from '../core/acc.js';
-import type { SessionDetail, ServerState } from '../shared/types.js';
+import { AGENTS, type Agent, type SessionDetail, type ServerState } from '../shared/types.js';
 import { aiErrorMessage, readAiSummary, resolveAi, summarizeWithAi, testAi, type AiSettings } from './ai.js';
 import { AutoSummarizer } from './autosum.js';
 import type { AiSummary, SessionMark } from '../shared/types.js';
@@ -57,6 +57,7 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
     cacheFile: indexer.cacheFile,
     generation: indexer.gen,
     groupBy: indexer.groupBy,
+    harnesses: indexer.enabled,
   });
 
   /** Projects whose folder is a git repository. */
@@ -244,6 +245,14 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
       }
       case '/api/settings': {
         if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        const harness = url.searchParams.get('harness') as Agent;
+        if (harness) {
+          if (!AGENTS.includes(harness)) return sendJson(req, res, { error: 'unknown harness' }, 400);
+          const harnesses = { ...indexer.enabled, [harness]: url.searchParams.get('on') !== '0' };
+          indexer.setHarnesses(harnesses);
+          writeSettings(cfg.dataDir, { harnesses });
+          return sendJson(req, res, state());
+        }
         const groupBy = url.searchParams.get('groupBy') as GroupBy;
         if (!GROUP_BY.includes(groupBy)) return sendJson(req, res, { error: 'unknown groupBy' }, 400);
         indexer.setGroupBy(groupBy);

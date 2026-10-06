@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
 import { api } from '../api';
+import { agentColor } from '../colors';
 import { useI18n, type Key } from '../i18n';
 import { refreshSessions } from '../store';
 
@@ -26,9 +27,44 @@ export function Star({ s }: { s: Pick<SessionSummary, 'id' | 'mark'> }) {
   );
 }
 
+/** Display name of a harness (Claude Code, Codex, Kimi Code). */
+export function agentKey(agent: string): Key {
+  return `agent.${agent}` as Key;
+}
+
+/** Which harnesses to show; an empty list means all of them. Off-switching the last one shows all again. */
+export function HarnessFilter({ value, onChange, present }: { value: string[]; onChange: (v: string[]) => void; present: string[] }) {
+  const { t } = useI18n();
+  if (present.length < 2) return null;
+  const on = (a: string) => !value.length || value.includes(a);
+  const toggle = (a: string) => {
+    const cur = value.length ? value.filter((x) => present.includes(x)) : present;
+    const next = cur.includes(a) ? cur.filter((x) => x !== a) : [...cur, a];
+    onChange(!next.length || next.length === present.length ? [] : next);
+  };
+  return (
+    <div className="seg" role="group" aria-label={t('harness.filter')}>
+      {present.map((a) => (
+        <button key={a} className={`pill ${on(a) ? 'on' : ''}`} aria-pressed={on(a)} onClick={() => toggle(a)}>
+          <span className="harness-dot" style={{ background: on(a) ? agentColor(a) : 'var(--line-2)' }} />
+          {t(agentKey(a))}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Harness settings in display order. */
+export const KNOBS = ['permission', 'plan', 'effort', 'model', 'sandbox', 'multiAgent', 'swarm', 'goal', 'speed', 'personality', 'surface'];
+
+/** Label of a harness setting (permission, effort, ...). */
+export function knobKey(knob: string): Key {
+  return `knob.${knob}` as Key;
+}
+
 export function AgentBadge({ agent }: { agent: string }) {
   const { t } = useI18n();
-  return <span className={`badge ${agent}`}>{t(agent === 'claude' ? 'agent.claude' : 'agent.codex')}</span>;
+  return <span className={`badge ${agent}`}>{t(agentKey(agent))}</span>;
 }
 
 /** Live status when the session is active, otherwise the outcome. */

@@ -12,6 +12,8 @@ test.each([
   ['deepseek-v4-pro', 1.32, 3.96, 0.044],
   ['kimi/k3', 3, 15, 0.3],
   ['kimi-k3-1m', 3, 15, 0.3],
+  ['kimi-code/k3', 3, 15, 0.3],
+  ['kimi-code/k3-256k', 3, 15, 0.3],
   ['mimo/mimo-v2.6-pro', 0.435, 0.87, 0.0036],
   ['mimo/mimo-v2.6-flash', 0.14, 0.28, 0.0028],
   ['gpt-6-astra', 10, 50, 1],

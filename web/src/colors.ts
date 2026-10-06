@@ -18,9 +18,9 @@ export function series(i: number): string {
   return i < 0 || i >= arr.length ? (isDark() ? OTHER.dark : OTHER.light) : arr[i];
 }
 
-/** Agents keep fixed slots: Claude orange, Codex blue. */
+/** Harnesses keep fixed slots: Claude orange, Codex blue, Kimi purple. */
 export function agentColor(agent: string): string {
-  return series(agent === 'claude' ? 1 : 0);
+  return series(agent === 'claude' ? 1 : agent === 'kimi' ? 6 : 0);
 }
 
 export function outcomeColor(o: Outcome | LiveStatus): string {

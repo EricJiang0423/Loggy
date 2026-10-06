@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取这两个工具本来就写在本机的日志，把每个会话画成周日历上的一根竖条，并提供会话详情、对话时间线、完成判定和效率分析。不用装 hook，不用改配置，也不会往你的仓库里写任何东西。
+Loggy 是 **Claude Code**、**Codex** 和 **Kimi Code** 会话的本地看板。它直接读取这些工具本来就写在本机的日志，把每个会话画成周日历上的一根竖条，并提供会话详情、对话时间线、完成判定和效率分析。不用装 hook，不用改配置，也不会往你的仓库里写任何东西。
 
 ![周日历、会话详情和时间线](docs/images/calendar-zh.png)
 
@@ -30,17 +30,20 @@ Loggy 是 **Claude Code** 和 **Codex** 会话的本地看板。它直接读取�
   - 中途结束
 
   Claude Code 运行时会写 `~/.claude/sessions/<pid>.json`，Loggy 读取它，所以等你确认权限或回答问题时会立刻显示「等你回复」。
+- **Kimi Code**：读取 `~/.kimi-code/sessions` 里每个会话的事件日志，会话、子代理、token 和等价费用、改动的文件、提交、时间线、提问和等待批准都和另外两个工具一样显示；标题用 Kimi Code 里的会话名（改过名就用最新的）。
+- **Harness 设置统计**：记录每一轮在什么设置下运行，以及会话中切换了几次：权限模式（如 default / plan / auto / bypass、Codex 的审批策略、Kimi 的 manual / yolo / auto）、思考强度、模型、Plan 模式、沙箱、多代理 / Swarm、Goal、快速模式和入口（桌面应用或 CLI）。会话详情里有「Harness 设置」卡片和切换记录，效率页按 Harness 汇总各设置的轮次占比，会话列表可以按某个设置筛选。
+- **Harness 开关和选择**：会话页和效率页可以多选要看的 Harness；设置里可以关掉某个 Harness，关掉后不再索引、不计入任何统计。
 - **Claude Code rewind**：rewind（以及「在新会话里继续」）会把对话分叉到一个新文件，并复制之前的记录。Loggy 把它们显示为一个会话，复制的部分只算一次，被回退掉的轮次会标出来。
 - **效率分析**：
   - 等价 API 花费、Agent 工作时间、Agent 等你的时间、会话数、提交数、改动行数、缓存命中率、最多同时进行的会话数，都会和上一周期对比
   - 每天的趋势图，以及「星期 × 小时」热力图
-  - Claude Code 与 Codex 的对比，按项目的统计表，各模型的输出速度（估算）
+  - 各 Harness 的对比、各 Harness 的设置统计、按项目的统计表、各模型的输出速度（估算）
   - 「值得一看」列表：花了钱却没产出、上下文接近上限、工具调用陷入循环、结束时还有未提交改动的会话
 - **项目分组**：可以在设置里选择按 git 远程仓库、git 根目录或工作目录分组。默认的智能分组优先用你在 Codex 应用里给对话指定的项目，其次在能识别仓库时（来自 git、Codex 日志或 Claude 的 PR 链接）按仓库分组，目录已被删除的会话也能归到对应项目。Codex 会话的标题用 Codex 应用里的对话名（改过名就用最新的）。
 - **Git**：画出所有本地分支的提交图，每个提交按产生它的会话着色；点开提交能看到改动的文件和 diff，以及这个会话每一轮对话分别做了哪些提交。可以搜索提交信息、按路径筛选，还有按目录统计的代码行数趋势。
 - **指令与记忆**：查看每个项目里 `CLAUDE.md` / `AGENTS.md` 的 git 历史和每次改动的 diff，以及每个版本生效期间跑了多少个会话。
 - **中英文界面**、浅色 / 深色主题、键盘导航（列表里用 ↑/↓ 或 j/k）。
-- **可选的 AI 概要和智能分类**：所有摘要用统一的格式（标题、要点、决策、未确认、担忧、待回答的问题、下一步、请求进度、类型、是否完成）。可以手动生成，也可以开启自动：最近 7 天的会话都会生成摘要，有变动的会话每天更新一次，并顺手把会话归纳成几个大类。可以接 Anthropic API，也可以接公司自己部署的模型。
+- **可选的 AI 概要和智能分类**：所有摘要用统一的格式（标题、要点、决策、未确认、担忧、待回答的问题、下一步、请求进度、类型、是否完成）。可以手动生成，也可以开启自动：最近 7 天的会话都会生成摘要，有变动的会话每天更新一次，并顺手把会话归纳成几个大类。可以接 Anthropic API，也可以接公司自己部署的模型。摘要和分类都按设置里选的语言写，写错语言会让模型重写一次，还不对就不保存。
 
 | 效率（深色） | 会话列表（深色） |
 |---|---|
@@ -64,10 +67,10 @@ Git 页：提交图、每轮对话的提交和 diff：
 
 ```sh
 # 不安装，直接运行一次
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.6.1/loggy-0.6.1.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.7.0/loggy-0.7.0.tgz
 
 # 或者安装 loggy 命令
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.6.1/loggy-0.6.1.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.7.0/loggy-0.7.0.tgz
 loggy
 ```
 
@@ -86,14 +89,16 @@ npm ci && npm run build && npm start
 
 ```
 loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
-      [--claude-dir <目录>]... [--codex-dir <目录>]... [--data-dir <目录>] [--ai-model <模型>]
+      [--claude-dir <目录>]... [--codex-dir <目录>]... [--kimi-dir <目录>]...
+      [--data-dir <目录>] [--ai-model <模型>]
 ```
 
 默认读取以下位置：
 - Claude Code：`$CLAUDE_CONFIG_DIR` 和 `~/.claude/projects`
 - Codex：`$CODEX_HOME`（或 `~/.codex`）下的 `sessions` 和 `archived_sessions`
+- Kimi Code：`$KIMI_CODE_HOME`（或 `~/.kimi-code`）下的 `sessions`
 
-有多个账号的话，可以多次传 `--claude-dir` / `--codex-dir`。
+有多个账号的话，可以多次传 `--claude-dir` / `--codex-dir` / `--kimi-dir`。
 
 ### AI 概要（可选）
 
@@ -109,7 +114,7 @@ loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
 
 没有在设置里配置时，Loggy 会沿用 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` 环境变量。默认模型是 `claude-haiku-4-5`，可以用 `--ai-model` 或 `LOGGY_AI_MODEL` 更换。
 
-**自动摘要**：勾选「自动为最近 7 天的会话生成摘要」后，后台每小时检查一次：最近 7 天里还没有摘要的会话会补上，之后有变动的会话每天最多更新一次，正在运行的会话等它停下来再生成。摘要语言在设置里统一指定，所有摘要都是同一个格式，换模型也一样；旧格式的摘要会在下次运行时被替换。
+**自动摘要**：勾选「自动为最近 7 天的会话生成摘要」后，后台每小时检查一次：最近 7 天里还没有摘要的会话会补上，之后有变动的会话每天最多更新一次，正在运行的会话等它停下来再生成。摘要语言在设置里统一指定，所有摘要都是同一个格式，换模型也一样；旧格式或写错语言的摘要会在下次运行时被替换。模型没按要求的语言写时会被要求重写一次，仍然不对就记为失败，一天后再试。
 
 **智能分类**：每次自动摘要跑完（每天最多一次），Loggy 先让模型用一句话概括每个项目在做什么，再归纳出 4–8 个大类，最后把每个会话归到一类。已有的分类名会传给模型优先沿用，颜色因此保持稳定。日历可以按「AI 分类」着色，设置页可以查看分类说明或手动重新分类。结果存在 `~/.loggy/categories.json`。
 

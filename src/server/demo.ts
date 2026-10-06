@@ -2,11 +2,12 @@
 // the test suite and the performance benchmark. Nothing here comes from real sessions.
 
 import { execFileSync } from 'node:child_process';
+import type { Agent } from '../shared/types.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
 export interface DemoExpectation {
-  agent: 'claude' | 'codex';
+  agent: Agent;
   file: string;
   sessionId: string;
   turns: number;
@@ -127,6 +128,9 @@ export function generateDemo(root: string, opts: DemoOptions = {}): DemoExpectat
   const codexRoot = path.join(root, 'codex', 'sessions');
   fs.mkdirSync(claudeRoot, { recursive: true });
   fs.mkdirSync(codexRoot, { recursive: true });
+  const kimiHome = path.join(root, 'kimi');
+  fs.mkdirSync(path.join(kimiHome, 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(kimiHome, 'config.toml'), KIMI_MODELS.map(([m, w]) => `[models."${m}"]\nmax_context_size = ${w}\n`).join('\n'));
   const out: DemoExpectation[] = [];
   const projects = opts.projectsRoot ? PROJECTS.map((p) => ({ ...p, cwd: path.join(opts.projectsRoot!, path.basename(p.cwd)) })) : PROJECTS;
 
@@ -139,8 +143,13 @@ export function generateDemo(root: string, opts: DemoOptions = {}): DemoExpectat
     if (running) start = now - r.int(8, 25) * 60_000;
     else if (start > now - 3600_000) start = now - r.int(2, 6) * 3600_000;
     const project = r.pick(projects);
-    const agent = i % 3 === 2 ? 'codex' : 'claude';
-    const exp = agent === 'claude' ? claudeSession(r, claudeRoot, project, start, running, bulk, out) : codexSession(r, codexRoot, project, start, running, bulk);
+    const agent = i % 7 === 4 ? 'kimi' : i % 3 === 2 ? 'codex' : 'claude';
+    const exp =
+      agent === 'claude'
+        ? claudeSession(r, claudeRoot, project, start, running, bulk, out)
+        : agent === 'kimi'
+          ? kimiSession(r, kimiHome, project, start, running, bulk, out)
+          : codexSession(r, codexRoot, project, start, running, bulk);
     out.push(exp);
   }
   return out;
@@ -178,6 +187,7 @@ function claudeSession(
     parent = uuid;
     return uuid;
   };
+  let effort = r.pick(['high', 'high', 'medium', 'xhigh', 'max']);
   const assistant = (content: unknown[], stop: string, usage: { in: number; cr: number; cw: number; out: number }) => {
     const id = `msg_${r.hex(24)}`;
     const u = {
@@ -191,7 +201,7 @@ function claudeSession(
     };
     // Claude Code writes one line per content block, each repeating the same usage.
     for (const block of content) {
-      push({ type: 'assistant', requestId: `req_${r.hex(24)}`, message: { model, id, type: 'message', role: 'assistant', content: [block], stop_reason: stop, stop_sequence: null, usage: u } });
+      push({ type: 'assistant', requestId: `req_${r.hex(24)}`, effort, message: { model, id, type: 'message', role: 'assistant', content: [block], stop_reason: stop, stop_sequence: null, usage: u } });
     }
     exp.tokens += usage.in + usage.cw + usage.cr + usage.out;
   };
@@ -203,10 +213,14 @@ function claudeSession(
   };
 
   lines.push(JSON.stringify({ type: 'mode', mode: 'normal', sessionId }));
+  // Harness settings: a permission mode per session (sometimes plan mode for a turn), an effort level.
+  const baseMode = r.pick(['default', 'default', 'acceptEdits', 'auto', 'bypassPermissions']);
   for (let k = 0; k < turns; k++) {
     const prompt = k === 0 ? r.pick(PROMPTS) : r.pick(FOLLOWUPS);
     const promptId = r.uuid();
-    push({ promptId, type: 'user', message: { role: 'user', content: prompt }, origin: { kind: 'human' }, permissionMode: 'default' });
+    const permissionMode = k === 0 && r.chance(0.2) ? 'plan' : baseMode;
+    if (k > 0 && r.chance(0.15)) effort = r.pick(['medium', 'high', 'xhigh', 'max']);
+    push({ promptId, type: 'user', message: { role: 'user', content: prompt }, origin: { kind: 'human' }, permissionMode });
     exp.turns++;
     exp.inputs++;
     t += r.int(3, 20) * 1000;
@@ -324,10 +338,23 @@ function codexSession(r: Rng, root: string, project: (typeof PROJECTS)[number], 
   let used5h = r.int(5, 60);
   let used7d = r.int(20, 80);
   const turns = running ? 2 : r.int(1, 7);
+  const approval = r.pick(['on-request', 'never']);
+  const sandbox = r.pick(['workspace-write', 'workspace-write', 'read-only', 'danger-full-access']);
+  const planFirst = r.chance(0.15);
+  let codexEffort = r.pick(['low', 'medium', 'medium', 'high', 'xhigh']);
   for (let k = 0; k < turns; k++) {
+    if (k > 0 && r.chance(0.15)) codexEffort = r.pick(['low', 'medium', 'high', 'xhigh']);
     const turnId = r.uuid();
     rec('event_msg', { type: 'task_started', turn_id: turnId, started_at: Math.floor(t / 1000), model_context_window: 258400 });
-    rec('turn_context', { turn_id: turnId, cwd: project.cwd, approval_policy: 'on-request', sandbox_policy: { type: 'workspace-write' }, model });
+    rec('turn_context', {
+      turn_id: turnId,
+      cwd: project.cwd,
+      approval_policy: approval,
+      sandbox_policy: { type: sandbox },
+      model,
+      effort: codexEffort,
+      collaboration_mode: { mode: k === 0 && planFirst ? 'plan' : 'default', settings: { model, reasoning_effort: codexEffort } },
+    });
     rec('response_item', { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>...</environment_context>' }] });
     const prompt = k === 0 ? r.pick(PROMPTS) : r.pick(FOLLOWUPS);
     rec('event_msg', { type: 'item_completed', thread_id: id, turn_id: turnId, item: { type: 'UserMessage', id: r.hex(6), content: [{ type: 'text', text: prompt, text_elements: [] }] }, completed_at_ms: t });
@@ -396,6 +423,142 @@ function codexSession(r: Rng, root: string, project: (typeof PROJECTS)[number], 
   if (running) fs.utimesSync(file, new Date(), new Date());
   else fs.utimesSync(file, new Date(t), new Date(t));
   return exp;
+}
+
+const KIMI_MODELS: [string, number][] = [
+  ['kimi-code/k3', 1048576],
+  ['kimi-code/k3-256k', 262144],
+  ['kimi-code/kimi-for-coding', 1048576],
+];
+
+/** A Kimi Code session: state.json plus one wire.jsonl per agent (main, and sometimes a subagent). */
+function kimiSession(r: Rng, home: string, project: (typeof PROJECTS)[number], start: number, running: boolean, bulk: number, all: DemoExpectation[]): DemoExpectation {
+  const id = `session_${r.uuid()}`;
+  const wd = path.join(home, 'sessions', `wd_${path.basename(project.cwd)}_${r.hex(12)}`);
+  const sessionDir = path.join(wd, id);
+  const file = path.join(sessionDir, 'agents', 'main', 'wire.jsonl');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const exp: DemoExpectation = {
+    agent: 'kimi', file, sessionId: id, turns: 0, inputs: 0, tokens: 0, filesChanged: 0, linesAdded: 0, linesRemoved: 0,
+    commits: 0, pushes: 0, interrupts: 0, compactions: 0, questions: 0, subagent: false, running,
+  };
+  let t = start;
+  const lines: string[] = [];
+  const rec = (type: string, body: Record<string, unknown>) => lines.push(JSON.stringify({ type, agentId: 'main', ...body, time: t }));
+  let model = r.pick(KIMI_MODELS)[0];
+  let effort = r.pick(['on', 'high', 'max']);
+  const mode = r.pick(['auto', 'yolo', 'yolo', 'manual']);
+  lines.push(JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: t }));
+  rec('permission.set_mode', { mode });
+  rec('profile.bind', { modelAlias: model, profileName: 'agent', thinkingEffort: effort, environmentDisclosure: { cwd: project.cwd } });
+  const touched = new Set<string>();
+  const turns = running ? 2 : r.int(1, 6);
+  let sub = false;
+  let firstPrompt = '';
+  for (let k = 0; k < turns; k++) {
+    const lastTurn = k === turns - 1;
+    if (k > 0 && r.chance(0.2)) {
+      effort = r.pick(['on', 'high', 'max']);
+      if (r.chance(0.5)) model = r.pick(KIMI_MODELS)[0];
+      rec('config.update', { thinkingEffort: effort, modelAlias: model });
+    }
+    const plan = k === 0 && r.chance(0.2);
+    if (plan) rec('plan_mode.enter', { id: `plan_${r.hex(8)}` });
+    const prompt = k === 0 ? r.pick(PROMPTS) : r.pick(FOLLOWUPS);
+    if (k === 0) firstPrompt = prompt;
+    rec('turn.prompt', { input: [{ type: 'text', text: prompt }], origin: { kind: 'user' }, turnId: k });
+    exp.turns++;
+    exp.inputs++;
+    const steps = r.int(1, 5) * bulk;
+    for (let st = 0; st < steps; st++) {
+      t += r.int(2, 15) * 1000;
+      const call = `call_${r.hex(24)}`;
+      const dir = r.pick(project.dirs);
+      const file = `${project.cwd}/${dir}/${r.pick(FILES)}`;
+      const kind = r.pick(['Edit', 'Write', 'Bash', 'Read']);
+      const args =
+        kind === 'Edit' ? { path: file, old_string: 'a\nb', new_string: 'a\nb\nc' } : kind === 'Write' ? { path: file, content: 'x\ny\n' } : kind === 'Bash' ? { command: 'npm test', description: 'Run the tests' } : { path: file };
+      rec('context.append_loop_event', { event: { type: 'tool.call', toolCallId: call, name: kind, args, turnId: String(k), step: st } });
+      const usage = { inputOther: r.int(100, 2000), output: r.int(50, 1500), inputCacheRead: r.int(10_000, 80_000), inputCacheCreation: 0 };
+      exp.tokens += usage.inputOther + usage.output + usage.inputCacheRead;
+      lines.push(JSON.stringify({ type: 'usage.record', agentId: 'main', model, usage, usageScope: 'turn', time: t }));
+      rec('context.append_loop_event', { event: { type: 'step.end', turnId: String(k), step: st, finishReason: 'tool_use', usage, llmStreamDurationMs: r.int(2000, 20000) } });
+      t += r.int(1, 6) * 1000;
+      rec('context.append_loop_event', { event: { type: 'tool.result', toolCallId: call, result: { output: 'ok' } } });
+      if (kind === 'Edit' || kind === 'Write') {
+        touched.add(file);
+        exp.linesAdded += kind === 'Edit' ? 3 : 2;
+        exp.linesRemoved += kind === 'Edit' ? 2 : 0;
+      }
+    }
+    if (plan) rec('plan_mode.exit', {});
+    if (k === 0 && !running && r.chance(0.3)) {
+      // A subagent explores while the main agent waits.
+      sub = true;
+      const call = `call_${r.hex(24)}`;
+      rec('context.append_loop_event', { event: { type: 'tool.call', toolCallId: call, name: 'Agent', args: { description: 'Find callers', prompt: 'Find every caller of the old API', subagent_type: 'explore' } } });
+      all.push(kimiSubagent(r, sessionDir, project, t, model));
+      t += 30_000;
+      rec('context.append_loop_event', { event: { type: 'tool.result', toolCallId: call, result: { output: 'Found 4 callers.' } } });
+    }
+    if (touched.size && (lastTurn || r.chance(0.4)) && !(running && lastTurn)) {
+      const call = `call_${r.hex(24)}`;
+      const msg = r.pick(['Add calendar view', 'Fix retry handler', 'Paginate list endpoint']);
+      const sha = r.hex(7);
+      rec('context.append_loop_event', { event: { type: 'tool.call', toolCallId: call, name: 'Bash', args: { command: `git add -A && git commit -m "${msg}"` } } });
+      t += 3000;
+      rec('context.append_loop_event', { event: { type: 'tool.result', toolCallId: call, result: { output: `[${project.branch} ${sha}] ${msg}\n 2 files changed` } } });
+      (exp.made ??= []).push({ sha, ts: t, msg, cwd: project.cwd, branch: project.branch });
+      exp.commits++;
+    }
+    if (running && lastTurn) break; // still working
+    const reply = r.pick(REPLIES);
+    rec('context.append_loop_event', { event: { type: 'content.part', turnId: String(k), part: { type: 'text', text: reply } } });
+    t += 2000;
+    if (!lastTurn && r.chance(0.08)) {
+      rec('turn.ended', { turnId: k, reason: 'cancelled', durationMs: 1000 });
+      exp.interrupts++;
+    } else rec('turn.ended', { turnId: k, reason: 'completed', durationMs: 1000 });
+    t += r.int(60, 1200) * 1000;
+  }
+  exp.filesChanged = touched.size;
+  fs.writeFileSync(file, lines.join('\n') + '\n');
+  const agents: Record<string, unknown> = { main: { homedir: path.dirname(file), type: 'main' } };
+  if (sub) agents['agent-1'] = { homedir: path.join(sessionDir, 'agents', 'agent-1'), type: 'sub', parentAgentId: 'main', labels: { profileName: 'explore' } };
+  const title = r.chance(0.5) ? { title: firstPrompt.slice(0, 40), titleKind: 'generated', isCustomTitle: false } : { isCustomTitle: false };
+  fs.writeFileSync(path.join(sessionDir, 'state.json'), JSON.stringify({ id, version: 2, cwd: project.cwd, createdAt: start, updatedAt: t, archived: false, agents, custom: {}, ...title }));
+  if (running) fs.utimesSync(file, new Date(), new Date());
+  else fs.utimesSync(file, new Date(t), new Date(t));
+  return exp;
+}
+
+function kimiSubagent(r: Rng, sessionDir: string, project: (typeof PROJECTS)[number], start: number, model: string): DemoExpectation {
+  const file = path.join(sessionDir, 'agents', 'agent-1', 'wire.jsonl');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let t = start;
+  const lines: string[] = [];
+  const rec = (type: string, body: Record<string, unknown>) => lines.push(JSON.stringify({ type, agentId: 'agent-1', ...body, time: t }));
+  lines.push(JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: t }));
+  rec('profile.bind', { modelAlias: model, profileName: 'explore', thinkingEffort: 'on', environmentDisclosure: { cwd: project.cwd } });
+  rec('turn.prompt', { input: [{ type: 'text', text: 'Find every caller of the old API' }], origin: { kind: 'system_trigger', name: 'subagent' }, turnId: 0 });
+  let tokens = 0;
+  for (let st = 0; st < 3; st++) {
+    t += 4000;
+    const call = `call_${r.hex(24)}`;
+    rec('context.append_loop_event', { event: { type: 'tool.call', toolCallId: call, name: 'Grep', args: { pattern: 'oldApi' } } });
+    const usage = { inputOther: 300, output: 120, inputCacheRead: 9000, inputCacheCreation: 0 };
+    tokens += 9420;
+    rec('usage.record', { model, usage, usageScope: 'turn' });
+    rec('context.append_loop_event', { event: { type: 'tool.result', toolCallId: call, result: { output: 'src/api.ts:12' } } });
+  }
+  rec('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: 'Found 4 callers.' } } });
+  rec('turn.ended', { turnId: 0, reason: 'completed', durationMs: 12000 });
+  fs.writeFileSync(file, lines.join('\n') + '\n');
+  fs.utimesSync(file, new Date(t), new Date(t));
+  return {
+    agent: 'kimi', file, sessionId: `${path.basename(sessionDir)}/agent-1`, turns: 1, inputs: 1, tokens, filesChanged: 0, linesAdded: 0, linesRemoved: 0,
+    commits: 0, pushes: 0, interrupts: 0, compactions: 0, questions: 0, subagent: true, running: false,
+  };
 }
 
 const DEMO_RULES = [
@@ -473,7 +636,9 @@ export function tickDemo(expectations: DemoExpectation[]): void {
     const line =
       e.agent === 'claude'
         ? { parentUuid: null, isSidechain: false, type: 'assistant', uuid: cryptoId(), timestamp: now, cwd: '', sessionId: e.sessionId, message: { model: 'claude-opus-5-5', id: `msg_${cryptoId()}`, role: 'assistant', content: [{ type: 'tool_use', id: `toolu_${cryptoId()}`, name: 'Bash', input: { command: 'npm test' } }], stop_reason: 'tool_use', usage: { input_tokens: 3, cache_read_input_tokens: 40000, cache_creation_input_tokens: 800, output_tokens: 150 } } }
-        : { timestamp: now, type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"cargo test"}', call_id: `call_${cryptoId()}` } };
+        : e.agent === 'kimi'
+          ? { type: 'context.append_loop_event', agentId: 'main', event: { type: 'tool.call', toolCallId: `call_${cryptoId()}`, name: 'Bash', args: { command: 'npm test' } }, time: Date.now() }
+          : { timestamp: now, type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"cargo test"}', call_id: `call_${cryptoId()}` } };
     fs.appendFileSync(e.file, JSON.stringify(line) + '\n');
   }
 }
