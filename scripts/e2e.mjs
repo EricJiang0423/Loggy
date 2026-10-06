@@ -106,6 +106,16 @@ try {
       await page.waitForSelector('svg.chart rect, svg.chart path');
       await page.screenshot({ path: path.join(out, `efficiency-${tag}.png`), fullPage: false });
 
+      // Git: commits with a diff, then lines of code
+      await page.goto(`${url}/#/git`);
+      await page.waitForSelector('.gitview .ver', { timeout: 15000 });
+      const subject = (await page.locator('.gitview .ver .subj').nth(1).textContent()).trim();
+      await page.locator('.gitview .ver').nth(1).click();
+      await page.waitForFunction((s) => document.querySelector('pre.git-msg')?.textContent?.trim() === s, subject, { timeout: 15000 });
+      await page.screenshot({ path: path.join(out, `git-${tag}.png`) });
+      await page.getByRole('button', { name: lang === 'en' ? 'Lines of code' : '代码行数' }).click();
+      await page.waitForSelector('svg.chart path', { timeout: 30000 });
+
       // Instructions and settings
       await page.goto(`${url}/#/instructions`);
       await page.waitForTimeout(400);

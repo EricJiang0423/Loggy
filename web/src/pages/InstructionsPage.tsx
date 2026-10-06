@@ -1,33 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { InstructionsInfo } from '../../../src/shared/types';
 import { api } from '../api';
-import { Seg } from '../components/common';
+import { DiffView, Seg } from '../components/common';
 import { dateTime, shortPath } from '../format';
 import { useI18n } from '../i18n';
 import { useStore } from '../store';
 
 type Info = InstructionsInfo & { globals: { path: string; exists: boolean }[] };
-
-function DiffView({ text }: { text: string }) {
-  const lines = text.split('\n');
-  return (
-    <pre className="code">
-      {lines.map((l, i) => {
-        const cls = l.startsWith('+') && !l.startsWith('+++') ? 'a' : l.startsWith('-') && !l.startsWith('---') ? 'r' : l.startsWith('@@') ? 'h' : '';
-        return cls ? (
-          <span key={i} className={cls}>
-            {l}
-          </span>
-        ) : (
-          <span key={i}>
-            {l}
-            {'\n'}
-          </span>
-        );
-      })}
-    </pre>
-  );
-}
 
 export function InstructionsPage() {
   const { t, lang } = useI18n();

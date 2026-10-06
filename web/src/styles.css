@@ -1503,3 +1503,25 @@ tr.rewound td {
 textarea.note {
   min-height: 60px;
 }
+
+/* ---------- git ---------- */
+.gitview {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+}
+
+pre.git-msg {
+  margin: 0 0 8px;
+  font-family: var(--sans);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+}
+
+@media (max-width: 820px) {
+  .gitview {
+    grid-template-columns: 1fr;
+  }
+}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
 import { api } from '../api';
 import { Calendar } from '../components/Calendar';
-import { LABELS, Seg, useDebounced } from '../components/common';
+import { LABELS, Seg, useDebounced, usePersisted } from '../components/common';
 import { DetailPanel } from '../components/DetailPanel';
 import { SessionList } from '../components/SessionList';
 import { useI18n, type Key } from '../i18n';
@@ -13,28 +13,6 @@ export type OutcomeFilter = 'all' | 'live' | 'done' | 'leftover' | 'abandoned';
 type Sort = 'recent' | 'start' | 'cost' | 'duration' | 'changes';
 type AgentFilter = 'all' | 'claude' | 'codex';
 
-function usePersisted<T extends string | boolean>(key: string, initial: T): [T, (v: T) => void] {
-  const [v, setV] = useState<T>(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw === null) return initial;
-      return (typeof initial === 'boolean' ? raw === 'true' : raw) as T;
-    } catch {
-      return initial;
-    }
-  });
-  return [
-    v,
-    (nv: T) => {
-      setV(nv);
-      try {
-        localStorage.setItem(key, String(nv));
-      } catch {
-        // ignore
-      }
-    },
-  ];
-}
 
 const isLive = (s: SessionSummary) => s.status === 'running' || s.status === 'stalled' || s.status === 'needs_input';
 

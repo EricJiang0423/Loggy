@@ -32,10 +32,9 @@ function niceMax(v: number): number {
   return step * p;
 }
 
-/** Rounded top only (data end), flat at the baseline. */
-function barPath(x: number, y: number, w: number, h: number, r: number): string {
-  const rr = Math.min(r, w / 2, h);
-  return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`;
+/** A plain bar (no rounded corners). */
+function barPath(x: number, y: number, w: number, h: number, _r: number): string {
+  return `M${x},${y + h}V${y}H${x + w}V${y + h}Z`;
 }
 
 export function Legend({ series }: { series: Series[] }) {

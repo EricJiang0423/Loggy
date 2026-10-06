@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { I18nContext, detectLang, translate, useI18n, type Key, type Lang } from './i18n';
 import { EfficiencyPage } from './pages/EfficiencyPage';
+import { GitPage } from './pages/GitPage';
 import { InstructionsPage } from './pages/InstructionsPage';
 import { SessionsPage } from './pages/SessionsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { startSync, useStore } from './store';
 
-export type Page = 'sessions' | 'efficiency' | 'instructions' | 'settings';
+export type Page = 'sessions' | 'efficiency' | 'instructions' | 'git' | 'settings';
 export type Theme = 'system' | 'light' | 'dark';
 
 interface Route {
@@ -17,7 +18,7 @@ interface Route {
 function parseHash(): Route {
   const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
   const [page, ...rest] = h.split('/');
-  const p = (['sessions', 'efficiency', 'instructions', 'settings'] as Page[]).includes(page as Page) ? (page as Page) : 'sessions';
+  const p = (['sessions', 'efficiency', 'instructions', 'git', 'settings'] as Page[]).includes(page as Page) ? (page as Page) : 'sessions';
   return { page: p, id: rest.length ? rest.join('/') : undefined };
 }
 
@@ -93,6 +94,7 @@ export function App() {
         {route.page === 'sessions' && <SessionsPage selectedId={route.id} onSelect={(id) => navigate('sessions', id)} query={query} />}
         {route.page === 'efficiency' && <EfficiencyPage onOpen={(id) => navigate('sessions', id)} />}
         {route.page === 'instructions' && <InstructionsPage />}
+        {route.page === 'git' && <GitPage onOpen={(id) => navigate('sessions', id)} />}
         {route.page === 'settings' && <SettingsPage lang={lang} setLang={changeLang} theme={theme} setTheme={changeTheme} />}
       </div>
     </I18nContext.Provider>
@@ -142,6 +144,7 @@ function TopBar({ page, navigate, query, setQuery, lang, setLang }: TopBarProps)
         <div className="navgroup">
           <span className="navgroup-label">{t('nav.dev')}</span>
           {tab('instructions', 'nav.instructions')}
+          {tab('git', 'nav.git')}
           {tab('settings', 'nav.settings')}
         </div>
       </nav>

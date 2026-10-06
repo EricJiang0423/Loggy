@@ -11,6 +11,7 @@ import { AutoSummarizer } from './autosum.js';
 import type { AiSummary, SessionMark } from '../shared/types.js';
 import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
+import { gitLines, gitLog, gitShow } from './git.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
@@ -57,6 +58,15 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
     generation: indexer.gen,
     groupBy: indexer.groupBy,
   });
+
+  /** Projects whose folder is a git repository. */
+  function gitProjects(): { path: string; name: string }[] {
+    const out = new Map<string, string>();
+    for (const s of indexer.summaries()) {
+      if (s.projectPath && !out.has(s.projectPath) && fs.existsSync(path.join(s.projectPath, '.git'))) out.set(s.projectPath, s.project);
+    }
+    return [...out].map(([p, name]) => ({ path: p, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }
 
   function currentAi() {
     return resolveAi(readSettings(cfg.dataDir).ai, process.env, cfg.aiModel);
@@ -176,6 +186,25 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         writeMarks(cfg.dataDir, indexer.marks);
         indexer.touch(id);
         return sendJson(req, res, { mark: indexer.marks.get(id) ?? null });
+      }
+      case '/api/git/projects':
+        return sendJson(req, res, { projects: gitProjects() });
+      case '/api/git/log':
+      case '/api/git/show':
+      case '/api/git/lines': {
+        const project = url.searchParams.get('project') ?? '';
+        if (!gitProjects().some((p) => p.path === project)) return sendJson(req, res, { error: 'unknown project' }, 400);
+        try {
+          if (p === '/api/git/show') return sendJson(req, res, await gitShow(project, url.searchParams.get('sha') ?? ''));
+          if (p === '/api/git/lines') return sendJson(req, res, await gitLines(project, cfg.dataDir));
+          const commits = await gitLog(project, { q: url.searchParams.get('q') || undefined, path: url.searchParams.get('path') || undefined });
+          // Which session made each commit.
+          const bySha = new Map<string, string>();
+          for (const s of indexer.summaries()) for (const sha of s.commitShas ?? []) bySha.set(sha.slice(0, 7), s.id);
+          return sendJson(req, res, { commits: commits.map((c) => ({ ...c, session: bySha.get(c.sha.slice(0, 7)) })) });
+        } catch (err) {
+          return sendJson(req, res, { error: (err as Error).message }, 500);
+        }
       }
       case '/api/related':
         return sendJson(req, res, { related: indexer.related(url.searchParams.get('id') ?? '') });

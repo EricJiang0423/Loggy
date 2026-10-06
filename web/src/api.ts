@@ -35,7 +35,32 @@ export interface AiForm {
   apiKey?: string;
 }
 
+export interface GitCommitRow {
+  sha: string;
+  author: string;
+  date: string;
+  subject: string;
+  added: number;
+  removed: number;
+  files: number;
+  session?: string;
+}
+
+export interface GitShow {
+  sha: string;
+  message: string;
+  files: { path: string; added: number; removed: number }[];
+  diff: string;
+  cut: boolean;
+}
+
+const enc = encodeURIComponent;
+
 export const api = {
+  gitProjects: () => get<{ projects: { path: string; name: string }[] }>('api/git/projects'),
+  gitLog: (project: string, q: string, path: string) => get<{ commits: GitCommitRow[] }>(`api/git/log?project=${enc(project)}&q=${enc(q)}&path=${enc(path)}`),
+  gitShow: (project: string, sha: string) => get<GitShow>(`api/git/show?project=${enc(project)}&sha=${enc(sha)}`),
+  gitLines: (project: string) => get<{ days: string[]; series: Record<string, number[]> }>(`api/git/lines?project=${enc(project)}`),
   state: () => get<ServerState>('api/state'),
   sessions: (since: number) => get<{ gen: number; full: boolean; sessions: SessionSummary[]; removed: string[] }>(`api/sessions?since=${since}`),
   session: (id: string, signal?: AbortSignal) => get<SessionDetail>(`api/session?id=${encodeURIComponent(id)}`, signal),

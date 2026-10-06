@@ -123,3 +123,49 @@ export function useThemeVersion(): number {
 export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
+
+/** Unified diff with added, removed and hunk lines colored. */
+export function DiffView({ text }: { text: string }) {
+  const lines = text.split('\n');
+  return (
+    <pre className="code">
+      {lines.map((l, i) => {
+        const cls = l.startsWith('+') && !l.startsWith('+++') ? 'a' : l.startsWith('-') && !l.startsWith('---') ? 'r' : l.startsWith('@@') ? 'h' : '';
+        return cls ? (
+          <span key={i} className={cls}>
+            {l}
+          </span>
+        ) : (
+          <span key={i}>
+            {l}
+            {'\n'}
+          </span>
+        );
+      })}
+    </pre>
+  );
+}
+
+/** State kept in localStorage (per viewer). */
+export function usePersisted<T extends string | boolean>(key: string, initial: T): [T, (v: T) => void] {
+  const [v, setV] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return initial;
+      return (typeof initial === 'boolean' ? raw === 'true' : raw) as T;
+    } catch {
+      return initial;
+    }
+  });
+  return [
+    v,
+    (nv: T) => {
+      setV(nv);
+      try {
+        localStorage.setItem(key, String(nv));
+      } catch {
+        // ignore
+      }
+    },
+  ];
+}

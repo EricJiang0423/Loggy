@@ -17,6 +17,8 @@
 - **Stars, labels and notes.** Star a session, label it discussing / in progress / later / done, and keep a note; filter by them in *Options*. Kept in `~/.loggy/marks.json`.
 - **Instant live status for Claude Code.** Loggy reads `~/.claude/sessions/<pid>.json`, so a session waiting for approval or an answer shows *needs input* right away instead of *stalled* after two minutes.
 
+- **Git page** (Dev → Git): a project's commits with search by message, filter by path, changed files and the diff, and a link to the session that made each commit; plus lines of code per top-level folder over time (cached per file content).
+
 ### Fixed
 
 - The AI summary no longer disappears and comes back while a running session updates.
