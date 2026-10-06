@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { SessionMark } from '../shared/types.js';
 import type { AiSettings } from './ai.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
 
@@ -27,4 +28,17 @@ export function writeSettings(dataDir: string, patch: Settings): Settings {
   fs.writeFileSync(file, JSON.stringify(next, null, 2), { mode: 0o600 });
   fs.chmodSync(file, 0o600);
   return next;
+}
+
+/** Bookmarks, labels and notes per session id (marks.json). */
+export function readMarks(dataDir: string): Map<string, SessionMark> {
+  try {
+    return new Map(Object.entries(JSON.parse(fs.readFileSync(path.join(dataDir, 'marks.json'), 'utf8'))));
+  } catch {
+    return new Map();
+  }
+}
+
+export function writeMarks(dataDir: string, marks: Map<string, SessionMark>): void {
+  fs.writeFileSync(path.join(dataDir, 'marks.json'), JSON.stringify(Object.fromEntries(marks), null, 2));
 }

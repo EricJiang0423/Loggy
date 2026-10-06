@@ -1,6 +1,30 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
+import { api } from '../api';
 import { useI18n, type Key } from '../i18n';
+import { refreshSessions } from '../store';
+
+export const LABELS = ['discuss', 'doing', 'later', 'done'] as const;
+
+/** Star toggle; saves right away. */
+export function Star({ s }: { s: Pick<SessionSummary, 'id' | 'mark'> }) {
+  const { t } = useI18n();
+  const on = !!s.mark?.star;
+  return (
+    <button
+      className={`star ${on ? 'on' : ''}`}
+      title={t(on ? 'mark.unstar' : 'mark.star')}
+      aria-label={t(on ? 'mark.unstar' : 'mark.star')}
+      aria-pressed={on}
+      onClick={(e) => {
+        e.stopPropagation();
+        void api.mark(s.id, { star: !on }).then(() => refreshSessions());
+      }}
+    >
+      {on ? '★' : '☆'}
+    </button>
+  );
+}
 
 export function AgentBadge({ agent }: { agent: string }) {
   const { t } = useI18n();

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
 import { compact, dateTime, duration, money } from '../format';
-import { useI18n } from '../i18n';
-import { AgentBadge, StatusBadge } from './common';
+import { useI18n, type Key } from '../i18n';
+import { AgentBadge, Star, StatusBadge } from './common';
 
 const ROW = 70;
 const OVERSCAN = 8;
@@ -60,6 +60,7 @@ export function SessionList({ sessions, selected, onSelect }: { sessions: Sessio
         aria-selected={s.id === selected}
       >
         <div className="title">
+          <Star s={s} />
           <StatusBadge s={s} />
           <span className="t">{(s.titleSource === 'prompt' || s.titleSource === 'none') && s.ai ? s.ai.title : s.title || s.sessionId}</span>
         </div>
@@ -74,6 +75,7 @@ export function SessionList({ sessions, selected, onSelect }: { sessions: Sessio
         <div className="meta">
           <AgentBadge agent={s.agent} />
           {s.isSubagent && <span className="badge">sub</span>}
+          {s.mark?.label && <span className="badge">{t(`mark.${s.mark.label}` as Key)}</span>}
           <span>{s.project}</span>
           <span className="num">{dateTime(s.start, lang)}</span>
           <span className="num">{duration(s.end - s.start, lang)}</span>

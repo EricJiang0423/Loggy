@@ -1,4 +1,4 @@
-import type { InstructionsInfo, SessionDetail, SessionSummary, ServerState } from '../../src/shared/types';
+import type { InstructionsInfo, MarkLabel, SessionDetail, SessionMark, SessionSummary, ServerState } from '../../src/shared/types';
 
 async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, { signal });
@@ -39,6 +39,7 @@ export const api = {
   state: () => get<ServerState>('api/state'),
   sessions: (since: number) => get<{ gen: number; full: boolean; sessions: SessionSummary[]; removed: string[] }>(`api/sessions?since=${since}`),
   session: (id: string, signal?: AbortSignal) => get<SessionDetail>(`api/session?id=${encodeURIComponent(id)}`, signal),
+  mark: (id: string, patch: { star?: boolean; label?: MarkLabel | null; note?: string }) => postJson<{ mark: SessionMark | null }>('api/mark', { id, ...patch }),
   related: (id: string) => get<{ related: { id: string; shared: number }[] }>(`api/related?id=${encodeURIComponent(id)}`),
   search: (q: string, signal?: AbortSignal) => get<{ ids: string[] }>(`api/search?q=${encodeURIComponent(q)}`, signal),
   instructions: (project: string) => get<InstructionsInfo & { globals: { path: string; exists: boolean }[] }>(`api/instructions?project=${encodeURIComponent(project)}`),

@@ -75,6 +75,20 @@ describe('http api', () => {
     expect(r.related.length).toBeGreaterThan(0); // demo sessions in one project reuse the same file names
   });
 
+  test('bookmarks, labels and notes are kept per session', async () => {
+    const { sessions } = (await (await fetch(`${app.url}/api/sessions`)).json()) as any;
+    const id = sessions.find((x: any) => !x.isSubagent).id;
+    const post = (body: unknown) => fetch(`${app.url}/api/mark`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await post({ id, star: true, label: 'later' })).status).toBe(200);
+    expect((await post({ id, note: 'check the migration' })).status).toBe(200);
+    expect((await post({ id, label: 'bogus' })).status).toBe(400);
+    const after = (await (await fetch(`${app.url}/api/sessions`)).json()) as any;
+    expect(after.sessions.find((x: any) => x.id === id).mark).toMatchObject({ star: true, label: 'later', note: 'check the migration' });
+    await post({ id, star: false, label: null, note: '' });
+    const cleared = (await (await fetch(`${app.url}/api/sessions`)).json()) as any;
+    expect(cleared.sessions.find((x: any) => x.id === id).mark).toBeUndefined();
+  });
+
   test('search finds sessions by prompt text', async () => {
     const r = (await (await fetch(`${app.url}/api/search?q=calendar`)).json()) as { ids: string[] };
     expect(r.ids.length).toBeGreaterThan(0);

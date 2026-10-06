@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
 import { api } from '../api';
 import { Calendar } from '../components/Calendar';
-import { Seg, useDebounced } from '../components/common';
+import { LABELS, Seg, useDebounced } from '../components/common';
 import { DetailPanel } from '../components/DetailPanel';
 import { SessionList } from '../components/SessionList';
-import { useI18n } from '../i18n';
+import { useI18n, type Key } from '../i18n';
 import { refreshSessions, useStore } from '../store';
 import type { ColorDim } from '../colors';
 
@@ -48,6 +48,8 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
   const [outcome, setOutcome] = useState<OutcomeFilter>('all');
   const [subagents, setSubagents] = usePersisted<boolean>('loggy.subagents', false);
   const [withChanges, setWithChanges] = usePersisted<boolean>('loggy.withChanges', false);
+  const [starred, setStarred] = usePersisted<boolean>('loggy.starred', false);
+  const [label, setLabel] = usePersisted<string>('loggy.label', '');
   const [sort, setSort] = usePersisted<Sort>('loggy.sort', 'recent');
   const [storedColorBy, setColorBy] = usePersisted<ColorDim>('loggy.colorBy', 'outcome');
   const colorBy: ColorDim = ['outcome', 'agent', 'project', 'category', 'model'].includes(storedColorBy) ? storedColorBy : 'outcome';
@@ -88,9 +90,11 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
           (agent === 'all' || s.agent === agent) &&
           (!project || s.projectPath === project) &&
           (!withChanges || s.filesChanged > 0) &&
+          (!starred || s.mark?.star) &&
+          (!label || (label === 'none' ? !s.mark?.label : s.mark?.label === label)) &&
           (!hits || hits.has(s.id)),
       ),
-    [list, subagents, agent, project, withChanges, hits],
+    [list, subagents, agent, project, withChanges, starred, label, hits],
   );
 
   const counts = useMemo(() => {
@@ -170,7 +174,7 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
         <details className="menu">
           <summary>
             {t('sessions.options')}
-            {subagents || withChanges ? ` · ${Number(subagents) + Number(withChanges)}` : ''}
+            {subagents || withChanges || starred || label ? ` · ${Number(subagents) + Number(withChanges) + Number(starred) + Number(!!label)}` : ''}
           </summary>
           <div className="menu-body">
             <label className="chk">
@@ -181,6 +185,19 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
               <input type="checkbox" checked={withChanges} onChange={(e) => setWithChanges(e.target.checked)} />
               {t('sessions.withChanges')}
             </label>
+            <label className="chk">
+              <input type="checkbox" checked={starred} onChange={(e) => setStarred(e.target.checked)} />
+              {t('sessions.starred')}
+            </label>
+            <select className="sel" value={label} onChange={(e) => setLabel(e.target.value)} aria-label={t('sessions.anyLabel')}>
+              <option value="">{t('sessions.anyLabel')}</option>
+              <option value="none">{t('mark.none')}</option>
+              {LABELS.map((l) => (
+                <option key={l} value={l}>
+                  {t(`mark.${l}` as Key)}
+                </option>
+              ))}
+            </select>
           </div>
         </details>
         <button className="btn icon ghost" onClick={() => void refreshSessions()} title={t('sessions.reload')} aria-label={t('sessions.reload')}>

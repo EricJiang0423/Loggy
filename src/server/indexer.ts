@@ -7,7 +7,7 @@ import path from 'node:path';
 import { PARSER_VERSION, computeOutcome, type AccState } from '../core/acc.js';
 import type { SummaryResult } from '../core/parse.js';
 import { liveStatus } from '../shared/status.js';
-import type { Agent, IndexProgress, SessionSummary, SourceInfo } from '../shared/types.js';
+import type { Agent, IndexProgress, SessionMark, SessionSummary, SourceInfo } from '../shared/types.js';
 import { ensureDir } from './config.js';
 import type { Pool } from './pool.js';
 import { readCodexThreads } from './codexstate.js';
@@ -60,6 +60,8 @@ export class Indexer extends EventEmitter {
   groupBy: GroupBy = 'smart';
   /** AI summary per session id, attached to the list (kept by the server). */
   aiLite = new Map<string, NonNullable<SessionSummary['ai']>>();
+  /** Bookmarks, labels and notes (kept by the server). */
+  marks = new Map<string, SessionMark>();
   /** Smart categories (kept by the server). */
   categories?: { sessions: Record<string, string>; projects: Record<string, { category: string }> };
   private known: Discovered[] = [];
@@ -339,6 +341,7 @@ export class Indexer extends EventEmitter {
   }
 
   private hotFiles = new Set<string>();
+  private lastLive = '';
   private polling = false;
 
   private async pollHot(fromWatch: boolean): Promise<void> {
@@ -373,6 +376,22 @@ export class Indexer extends EventEmitter {
         jobs.push(this.parse(file, agent));
       }
       await Promise.all(jobs);
+      // A Claude process can change state (e.g. start waiting for approval) without writing a log line.
+      if (!fromWatch) {
+        const live = JSON.stringify([...this.liveClaude()].sort());
+        if (live !== this.lastLive) {
+          const before = new Map<string, string>(JSON.parse(this.lastLive || '[]'));
+          const after = new Map<string, string>(JSON.parse(live));
+          this.lastLive = live;
+          for (const e of this.entries.values()) {
+            const sid = e.summary.sessionId;
+            if (e.agent === 'claude' && before.get(sid) !== after.get(sid)) {
+              e.gen = ++this.gen;
+              changed = true;
+            }
+          }
+        }
+      }
       if (changed) this.emit('update');
     } finally {
       this.polling = false;
@@ -401,9 +420,12 @@ export class Indexer extends EventEmitter {
   summaries(): SessionSummary[] {
     const now = Date.now();
     const groups = this.groups();
-    const merged = [...groups.entries()].map(([key, pages]) =>
-      pages.length === 1 ? { ...pages[0].summary } : mergePages(pages.map((e) => e.summary), key.startsWith('lineage:')),
-    );
+    const merged = [...groups.entries()].map(([key, pages]) => {
+      const s = pages.length === 1 ? { ...pages[0].summary } : mergePages(pages.map((e) => e.summary), key.startsWith('lineage:'));
+      // A mark made before a rewind is kept under the earlier id.
+      for (let i = pages.length - 1; i >= 0 && !s.mark; i--) s.mark = this.marks.get(pages[i].summary.id);
+      return s;
+    });
     // Subagents of an earlier file of a forked conversation belong to the merged session.
     const mergedId = this.mergedIds(groups);
     for (const s of merged) if (s.parentId && mergedId.has(s.parentId)) s.parentId = mergedId.get(s.parentId);
@@ -442,10 +464,16 @@ export class Indexer extends EventEmitter {
       k.cost += s.costUSD;
       kids.set(p, k);
     }
+    const live = this.liveClaude();
     const out: SessionSummary[] = [];
     for (const s of merged) {
       const k = kids.get(s.id);
-      out.push({ ...s, status: liveStatus(s, now), children: k?.n ?? 0, totalCostUSD: s.costUSD + (k?.cost ?? 0), ai: this.aiLite.get(s.id) });
+      let status = liveStatus(s, now);
+      const proc = s.agent === 'claude' && !s.isSubagent ? live.get(s.sessionId) : undefined;
+      if (proc === 'busy') status = 'running';
+      else if (proc === 'waiting') status = 'needs_input';
+      else if (proc === 'idle' && (status === 'running' || status === 'stalled')) status = 'idle';
+      out.push({ ...s, status, children: k?.n ?? 0, totalCostUSD: s.costUSD + (k?.cost ?? 0), ai: this.aiLite.get(s.id) });
     }
     return out;
   }
@@ -543,6 +571,27 @@ export class Indexer extends EventEmitter {
       for (const [k, v] of r.projects) projects.set(k, v);
     }
     return { names, projects };
+  }
+
+  // ---------- live Claude processes ----------
+
+  /** sessionId -> status of running Claude Code processes (~/.claude/sessions/<pid>.json). */
+  private liveClaude(): Map<string, string> {
+    // A handful of small files; read every time so a new state shows up immediately.
+    const value = new Map<string, string>();
+    for (const dir of this.sources.claudeDirs) {
+      for (const f of readdir(path.join(dir, 'sessions'))) {
+        if (!f.isFile() || !f.name.endsWith('.json')) continue;
+        try {
+          const d = JSON.parse(fs.readFileSync(path.join(dir, 'sessions', f.name), 'utf8'));
+          if (typeof d.sessionId !== 'string' || typeof d.status !== 'string' || !pidAlive(d.pid)) continue;
+          value.set(d.sessionId, d.status);
+        } catch {
+          // being rewritten; try again next time
+        }
+      }
+    }
+    return value;
   }
 
   // ---------- rewinds ----------
@@ -720,6 +769,16 @@ function mergePages(pages: SessionSummary[], forked = false): SessionSummary {
     inputTimes: pages.flatMap((p) => p.inputTimes).slice(-500),
     ...(forked ? { rewinds: pages.length - 1, rewoundInputs: pages.reduce((n, p) => n + p.inputTimes.length, 0) - keptInputs(pages) } : {}),
   };
+}
+
+function pidAlive(pid: unknown): boolean {
+  if (typeof pid !== 'number' || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }
 
 function readdir(dir: string): fs.Dirent[] {

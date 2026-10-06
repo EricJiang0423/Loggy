@@ -8,13 +8,13 @@ import { completionOf } from '../core/acc.js';
 import type { SessionDetail, ServerState } from '../shared/types.js';
 import { aiErrorMessage, readAiSummary, resolveAi, summarizeWithAi, testAi, type AiSettings } from './ai.js';
 import { AutoSummarizer } from './autosum.js';
-import type { AiSummary } from '../shared/types.js';
+import type { AiSummary, SessionMark } from '../shared/types.js';
 import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
-import { readSettings, writeSettings } from './settings.js';
+import { readMarks, readSettings, writeMarks, writeSettings } from './settings.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -103,6 +103,7 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
   });
   if (auto.categories) indexer.setCategories(auto.categories);
   for (const [id, a] of auto.saved) indexer.aiLite.set(id, lite(a));
+  indexer.marks = readMarks(cfg.dataDir);
   if (opts.autoSummaries !== false) auto.start();
 
   async function detailOf(id: string): Promise<Omit<SessionDetail, 'ai'> | undefined> {
@@ -156,6 +157,25 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         if (!d) return sendJson(req, res, { error: 'not found' }, 404);
         const ai = readAiSummary(cfg.dataDir, id);
         return sendJson(req, res, { ...d, ai, completion: completionOf(d.summary, ai ? ai.workComplete : null) });
+      }
+      case '/api/mark': {
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        const body = await readJson(req);
+        const id = typeof body?.id === 'string' ? body.id : '';
+        if (!body || !indexer.pagesOf(id).length) return sendJson(req, res, { error: 'unknown session' }, 400);
+        if (body.label !== undefined && body.label !== null && !['discuss', 'doing', 'later', 'done'].includes(body.label as string)) return sendJson(req, res, { error: 'unknown label' }, 400);
+        const cur = indexer.marks.get(id) ?? { ts: 0 };
+        const next = {
+          star: body.star === undefined ? cur.star : body.star === true || undefined,
+          label: body.label === undefined ? cur.label : (body.label as SessionMark['label']) || undefined,
+          note: body.note === undefined ? cur.note : String(body.note).slice(0, 20_000) || undefined,
+          ts: Date.now(),
+        };
+        if (next.star || next.label || next.note) indexer.marks.set(id, next);
+        else indexer.marks.delete(id);
+        writeMarks(cfg.dataDir, indexer.marks);
+        indexer.touch(id);
+        return sendJson(req, res, { mark: indexer.marks.get(id) ?? null });
       }
       case '/api/related':
         return sendJson(req, res, { related: indexer.related(url.searchParams.get('id') ?? '') });

@@ -1485,3 +1485,21 @@ tr.rewound td {
   background: var(--critical-soft);
   color: var(--critical-ink);
 }
+
+.star {
+  border: 0;
+  background: transparent;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.star.on {
+  color: var(--warn);
+}
+
+textarea.note {
+  min-height: 60px;
+}

@@ -99,6 +99,8 @@ export interface SessionSummary {
   speed?: Record<string, [number, number]>;
   /** Commits made in the session (full or short sha), newest last. */
   commitShas?: string[];
+  /** Your bookmark, label and note (filled by the server). */
+  mark?: SessionMark;
   /** Smart category from the AI classification (filled by the server). */
   category?: string;
   /** Short form of the saved AI summary (filled by the server). */
@@ -115,6 +117,15 @@ export interface SessionSummary {
   children?: number;
   /** Cost including subagents (filled by the server). */
   totalCostUSD?: number;
+}
+
+export type MarkLabel = 'discuss' | 'doing' | 'later' | 'done';
+
+export interface SessionMark {
+  star?: boolean;
+  label?: MarkLabel;
+  note?: string;
+  ts: number;
 }
 
 export interface CommitInfo {

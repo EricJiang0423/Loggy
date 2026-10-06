@@ -3,8 +3,8 @@ import type { CompletionCheck, SessionDetail, SessionSummary } from '../../../sr
 import { api } from '../api';
 import { compact, dateTime, duration, money, pct, relative, shortPath, time } from '../format';
 import { useI18n, type Key } from '../i18n';
-import { useStore } from '../store';
-import { AgentBadge, Card, CopyButton, StatusBadge } from './common';
+import { refreshSessions, useStore } from '../store';
+import { AgentBadge, Card, CopyButton, LABELS, Star, StatusBadge } from './common';
 import { Timeline } from './Timeline';
 
 const cache = new Map<string, SessionDetail>();
@@ -136,6 +136,7 @@ function Header({
   return (
     <div className="detail-head">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Star s={s} />
         <StatusBadge s={s} />
         <AgentBadge agent={s.agent} />
         {s.category && <span className="badge">{s.category}</span>}
@@ -154,6 +155,19 @@ function Header({
           </button>
         )}
         <span style={{ flex: 1 }} />
+        <select
+          className="sel"
+          value={s.mark?.label ?? ''}
+          onChange={(e) => void api.mark(s.id, { label: (e.target.value || null) as never }).then(() => refreshSessions())}
+          aria-label={t('mark.none')}
+        >
+          <option value="">{t('mark.none')}</option>
+          {LABELS.map((l) => (
+            <option key={l} value={l}>
+              {t(`mark.${l}` as Key)}
+            </option>
+          ))}
+        </select>
         {resume && <CopyButton text={resume} label={t('detail.resume')} />}
         {!showTimeline && (
           <button className="btn" onClick={() => setShowTimeline(true)}>
@@ -294,6 +308,7 @@ function Body({ s, d, onAi, onSelect }: { s: SessionSummary; d: SessionDetail; o
       </Card>
       <Requests d={d} />
       <Efficiency s={s} />
+      <Notes s={s} />
       <Related id={s.id} onSelect={onSelect} />
       <Turns d={d} />
     </div>
@@ -533,6 +548,39 @@ function Efficiency({ s }: { s: SessionSummary }) {
           {t('eff.ctxParts')}: {t('eff.ctxPartsValue', { read: compact(s.ctxParts[1], lang), write: compact(s.ctxParts[2], lang), fresh: compact(s.ctxParts[0], lang) })}
         </div>
       )}
+    </Card>
+  );
+}
+
+/** Your note for the session, saved as you type. */
+function Notes({ s }: { s: SessionSummary }) {
+  const { t } = useI18n();
+  const [text, setText] = useState(s.mark?.note ?? '');
+  const [saved, setSaved] = useState(false);
+  const first = useRef(true);
+  useEffect(() => {
+    setText(s.mark?.note ?? '');
+    first.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.id]);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (text === (s.mark?.note ?? '')) return;
+    const id = window.setTimeout(() => {
+      void api.mark(s.id, { note: text }).then(() => {
+        setSaved(true);
+        void refreshSessions();
+      });
+    }, 600);
+    setSaved(false);
+    return () => window.clearTimeout(id);
+  }, [text, s.id]);
+  return (
+    <Card title={t('mark.note')} extra={saved ? <span className="muted">{t('mark.saved')}</span> : undefined}>
+      <textarea className="input note" rows={3} value={text} placeholder={t('mark.notePlaceholder')} onChange={(e) => setText(e.target.value)} />
     </Card>
   );
 }

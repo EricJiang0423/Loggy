@@ -14,6 +14,9 @@
 - **Codex app names and projects.** Codex sessions use the thread name from the Codex app (the latest rename), and smart grouping puts a thread in the project you chose for it in the Codex app.
 - **Session detail:** category and refusal badges, the make-up of the last request's context, an estimated output speed, and *Related sessions* (sessions that edited the same files). The efficiency page lists output speed per model.
 
+- **Stars, labels and notes.** Star a session, label it discussing / in progress / later / done, and keep a note; filter by them in *Options*. Kept in `~/.loggy/marks.json`.
+- **Instant live status for Claude Code.** Loggy reads `~/.claude/sessions/<pid>.json`, so a session waiting for approval or an answer shows *needs input* right away instead of *stalled* after two minutes.
+
 ### Fixed
 
 - The AI summary no longer disappears and comes back while a running session updates.
