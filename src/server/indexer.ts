@@ -11,9 +11,12 @@ import type { Agent, IndexProgress, SessionMark, SessionSummary, SourceInfo } fr
 import { ensureDir } from './config.js';
 import type { Pool } from './pool.js';
 import { readCodexThreads } from './codexstate.js';
-import { groupProjects, readRemote, type GroupBy, type Place } from './projects.js';
+import { groupProjects, isUnder, readRemote, type GroupBy, type Place } from './projects.js';
 
 const CACHE_VERSION = 2;
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+// ponytail: matches the Codex app's default <…>/Codex/YYYY-MM-DD/<slug>; read its state if that moves.
+const CODEX_SCRATCH = /^(.*\/Codex)\/\d{4}-\d{2}-\d{2}\//;
 const KEEP_STATE_MS = 3 * 86400_000;
 const HOT_MS = 20 * 60_000;
 const HEAD_BYTES = 256 * 1024;
@@ -439,7 +442,18 @@ export class Indexer extends EventEmitter {
         s.titleSource = 'custom';
       }
     }
-    groupProjects(merged, this.groupBy, (cwd) => this.place(cwd), undefined, app.projects);
+    // Codex threads are placed by folder like Claude sessions, so both land in the same project:
+    // a thread that ran outside its app project's folders counts as in the first one, and the
+    // dated folders the app makes for chats without a project count as one folder.
+    const home = new Map<string, string>();
+    for (const s of merged) {
+      if (s.agent !== 'codex' || !s.cwd) continue;
+      const roots = app.projects.get(s.sessionId);
+      const scratch = CODEX_SCRATCH.exec(s.cwd + '/')?.[1];
+      if (roots && !roots.some((r) => isUnder(s.cwd, r))) home.set(s.sessionId, roots[0]);
+      else if (!roots && scratch) home.set(s.sessionId, scratch);
+    }
+    groupProjects(merged, this.groupBy, (cwd) => this.place(cwd), undefined, home);
     if (this.categories) {
       const cats = this.categories;
       const byId = new Map(merged.map((s) => [s.id, s]));
@@ -455,6 +469,15 @@ export class Indexer extends EventEmitter {
         s.uncommittedEdits = false;
         s.outcome = computeOutcome(s.turns, s.lastTurn, false, s.pendingBackground);
       }
+    }
+    // Handoffs: a first prompt that names one other session (Loggy's handoff text, a codex://
+    // link, a log path) continues it, across Claude and Codex alike.
+    const bySid = new Map<string, string>();
+    for (const s of merged) if (!s.isSubagent) bySid.set(s.sessionId.toLowerCase(), s.id);
+    for (const s of merged) {
+      if (s.isSubagent) continue;
+      const named = new Set((s.firstPrompt.match(UUID) ?? []).map((u) => bySid.get(u.toLowerCase())).filter((id) => id && id !== s.id));
+      if (named.size === 1) s.continues = [...named][0];
     }
     const kids = new Map<string, { n: number; cost: number }>();
     for (const s of merged) {
@@ -563,9 +586,9 @@ export class Indexer extends EventEmitter {
     return [...out];
   }
 
-  private codexThreads(): { names: Map<string, string>; projects: Map<string, string> } {
+  private codexThreads(): { names: Map<string, string>; projects: Map<string, string[]> } {
     const names = new Map<string, string>();
-    const projects = new Map<string, string>();
+    const projects = new Map<string, string[]>();
     for (const dir of this.sources.codexDirs) {
       const r = readCodexThreads(dir);
       for (const [k, v] of r.names) names.set(k, v);

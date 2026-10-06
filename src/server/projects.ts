@@ -54,7 +54,7 @@ interface Group {
   dir?: string;
 }
 
-const isUnder = (p: string, dir: string) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
+export const isUnder = (p: string, dir: string) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
 
 function repoGroup(repo: string): Group {
   const parts = repo.split('/');
@@ -71,20 +71,28 @@ export function groupProjects(
   mode: GroupBy,
   placeOf: (cwd: string) => Place,
   existsOnDisk: (p: string) => boolean = fs.existsSync,
-  /** sessionId -> project the user chose in the Codex app (smart mode only) */
-  assigned: Map<string, string> = new Map(),
+  /** sessionId -> folder the session counts as running in (smart mode only) */
+  homes: Map<string, string> = new Map(),
 ): void {
+  const at = (s: SessionSummary) => (mode === 'smart' && homes.get(s.sessionId)) || s.cwd;
   const groups = new Map<string, Group>();
   const pick = new Map<SessionSummary, Group>();
   const seen = new Map<string, boolean>();
   const exists = (p: string) => seen.get(p) ?? (seen.set(p, existsOnDisk(p)), seen.get(p)!);
-  const repoOf = (s: SessionSummary, p: Place) => p.remote ?? normalizeRemote(s.repo);
+  // A folder whose origin changed over time (fork, transfer) keeps the latest remote its sessions recorded.
+  const latest = new Map<string, { at: number; repo: string }>();
+  for (const s of list) {
+    const repo = normalizeRemote(s.repo);
+    const cur = latest.get(s.cwd);
+    if (repo && s.cwd && !(cur && cur.at > s.start)) latest.set(s.cwd, { at: s.start, repo });
+  }
+  const repoOf = (s: SessionSummary, p: Place) => p.remote ?? (s.repo ? latest.get(s.cwd)?.repo : undefined);
 
   // A git root without an origin remote takes the repo that sessions inside it recorded.
   const repoByRoot = new Map<string, string>();
   if (mode === 'smart' || mode === 'repo') {
     for (const s of list) {
-      const p = s.cwd ? placeOf(s.cwd) : undefined;
+      const p = s.cwd ? placeOf(at(s)) : undefined;
       const repo = normalizeRemote(s.repo);
       if (p?.isGit && !p.remote && repo && !repoByRoot.has(p.root)) repoByRoot.set(p.root, repo);
     }
@@ -98,14 +106,10 @@ export function groupProjects(
       pick.set(s, { key: '', name: '(unknown)', hint: '' });
       continue;
     }
-    const chosen = mode === 'smart' ? assigned.get(s.sessionId) : undefined;
-    if (chosen) {
-      pick.set(s, { key: `app:${chosen}`, name: chosen, hint: '' });
-      continue;
-    }
-    const p = placeOf(s.cwd);
+    const cwd = at(s);
+    const p = placeOf(cwd);
     const repo = mode === 'smart' || mode === 'repo' ? (repoOf(s, p) ?? repoByRoot.get(p.root)) : undefined;
-    if (repo && !repoByCwd.has(s.cwd)) repoByCwd.set(s.cwd, repo);
+    if (repo && !repoByCwd.has(cwd)) repoByCwd.set(cwd, repo);
     let g: Group;
     if (mode === 'folder') g = dirGroup(s.cwd, p.isGit && p.root === s.cwd);
     else if (repo) g = repoGroup(repo);
@@ -120,16 +124,16 @@ export function groupProjects(
     const known: [string, Group][] = [];
     for (const [s, g] of pick) {
       if (unknown.has(s) || !s.cwd) continue;
-      const p = placeOf(s.cwd);
+      const p = placeOf(at(s));
       if (p.isGit) known.push([p.root, g]);
-      else if (!exists(s.cwd)) known.push([s.cwd, g]);
+      else if (!exists(at(s))) known.push([at(s), g]);
     }
     known.sort((a, b) => b[0].length - a[0].length);
     for (const s of unknown) {
-      const repo = exists(s.cwd) ? undefined : repoByCwd.get(s.cwd);
+      const repo = exists(at(s)) ? undefined : repoByCwd.get(at(s));
       if (repo) pick.set(s, repoGroup(repo));
       else {
-        const hit = known.find(([dir]) => isUnder(s.cwd, dir));
+        const hit = known.find(([dir]) => isUnder(at(s), dir));
         if (hit) pick.set(s, hit[1]);
       }
     }
@@ -137,7 +141,7 @@ export function groupProjects(
     const byId = new Map(list.map((s) => [s.id, s]));
     for (const s of unknown) {
       const parent = s.parentId ? byId.get(s.parentId) : undefined;
-      if (parent && pick.get(s)!.key === placeOf(s.cwd).root) pick.set(s, pick.get(parent)!);
+      if (parent && pick.get(s)!.key === placeOf(at(s)).root) pick.set(s, pick.get(parent)!);
     }
   }
 
@@ -145,7 +149,7 @@ export function groupProjects(
   const dirVotes = new Map<string, Map<string, number>>();
   for (const [s, g] of pick) {
     if (!groups.has(g.key)) groups.set(g.key, { ...g });
-    const p = s.cwd ? placeOf(s.cwd) : undefined;
+    const p = s.cwd ? placeOf(at(s)) : undefined;
     if (g.key.startsWith('repo:') && p?.isGit) {
       const votes = dirVotes.get(g.key) ?? new Map<string, number>();
       votes.set(p.root, (votes.get(p.root) ?? 0) + 1);

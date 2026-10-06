@@ -133,6 +133,9 @@ function Header({
   const now = useStore((x) => x.now);
   const tokens = s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite;
   const resume = s.isSubagent ? undefined : s.agent === 'claude' ? `cd ${quote(s.cwd)} && claude --resume ${s.sessionId}` : `cd ${quote(s.cwd)} && codex resume ${s.sessionId}`;
+  const list = useStore((x) => x.list);
+  const next = useMemo(() => list.filter((x) => x.continues === s.id), [list, s.id]);
+  const split = splitReasons(s, detail).map(([k, n]) => t(k, { n })).join(' · ');
   return (
     <div className="detail-head">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -149,6 +152,16 @@ function Header({
             ↑ {t('detail.parent')}
           </button>
         )}
+        {s.continues && (
+          <button className="btn" onClick={() => onSelect(s.continues!)}>
+            ← {t('detail.continues')}
+          </button>
+        )}
+        {next.map((x) => (
+          <button className="btn" key={x.id} onClick={() => onSelect(x.id)} title={x.title}>
+            {t('detail.continuedBy')} →
+          </button>
+        ))}
         {s.forkedFrom && (
           <button className="btn" onClick={() => onSelect(s.forkedFrom!)}>
             {t('detail.forkedFrom')}
@@ -168,6 +181,7 @@ function Header({
             </option>
           ))}
         </select>
+        {!s.isSubagent && detail && <CopyButton text={handoff(s, detail, t)} label={t('detail.handoff')} />}
         {resume && <CopyButton text={resume} label={t('detail.resume')} />}
         {!showTimeline && (
           <button className="btn" onClick={() => setShowTimeline(true)}>
@@ -204,8 +218,50 @@ function Header({
         </span>
         {(s.rewinds ?? 0) > 0 && <span>{t('detail.rewinds', { n: s.rewinds!, m: s.rewoundInputs ?? 0 })}</span>}
       </div>
+      {split && !s.isSubagent && (
+        <div className="muted" style={{ marginTop: 4, color: 'var(--warn-ink)' }} title={t('split.why')}>
+          {t('split.hint', { why: split })}
+        </div>
+      )}
     </div>
   );
+}
+
+/** Signs that one conversation held more than one deliverable: the rule is one deliverable per conversation. */
+function splitReasons(s: SessionSummary, d?: SessionDetail): [Key, number][] {
+  const out: [Key, number][] = [];
+  if (s.compactions >= 2) out.push(['split.compacted', s.compactions]);
+  const t = [...s.inputTimes].sort((a, b) => a - b);
+  const overnight = t.filter((x, i) => i > 0 && x - t[i - 1] > 8 * 3600_000).length;
+  if (overnight) out.push(['split.resumed', overnight]);
+  const tasks = (d?.ai?.requests ?? []).filter((r) => r.kind === 'request').length;
+  if (tasks >= 2) out.push(['split.requests', tasks]);
+  return out;
+}
+
+/** A prompt to start the next conversation (in either agent) where this one left off. */
+function handoff(s: SessionSummary, d: SessionDetail, t: ReturnType<typeof useI18n>['t']): string {
+  const ai = d.ai;
+  const sec = (label: Key, items?: string[]) => (items?.length ? [`${t(label)}:`, ...items.map((x) => `- ${x}`), ''] : []);
+  const last = [...d.turns].reverse().find((x) => x.response)?.response;
+  return [
+    t('handoff.head', { id: `${s.agent}:${s.sessionId}`, title: ai?.title || s.title }),
+    `${t('handoff.where')}: ${s.cwd}${s.branch ? ` (${s.branch})` : ''}`,
+    `${t('handoff.log')}: ${s.file}`,
+    '',
+    ...(ai
+      ? [...sec('handoff.done', ai.bullets), ...sec('handoff.decisions', ai.decisions), ...sec('handoff.unverified', [...(ai.unverified ?? []), ...(ai.openQuestions ?? [])]), ...sec('handoff.next', ai.nextSteps)]
+      : [`${t('handoff.goal')}: ${s.firstPrompt}`, '', ...sec('handoff.last', last ? [last] : [])]),
+    ...sec('handoff.commits', d.commits.map((c) => `${c.sha.slice(0, 7)} ${c.message ?? ''}`.trim())),
+    ...sec(
+      'handoff.files',
+      d.files.slice(0, 30).map((f) => relPath(f.path, s.cwd)),
+    ),
+    s.uncommittedEdits ? t('handoff.uncommitted') : '',
+    t('handoff.ask'),
+  ]
+    .filter((x, i, a) => x || a[i - 1])
+    .join('\n');
 }
 
 function quote(p: string): string {

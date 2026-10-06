@@ -113,6 +113,8 @@ export interface SessionSummary {
   /** File mtime, ms. */
   mtime: number;
   status: LiveStatus;
+  /** Session this one was handed off from: its first prompt names exactly one other session (filled by the server). */
+  continues?: string;
   /** Number of subagent sessions attached to this one (filled by the server). */
   children?: number;
   /** Cost including subagents (filled by the server). */

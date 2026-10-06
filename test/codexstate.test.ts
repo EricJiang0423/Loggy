@@ -25,15 +25,17 @@ test('Codex thread names (latest rename wins) and Codex app projects', () => {
   const r = readCodexThreads(home);
   expect(r.names.get('t1')).toBe('0918 | renamed');
   expect(r.names.get('t2')).toBe('other');
-  expect(r.projects.get('t1')).toBe('Nightly jobs');
+  expect(r.projects.get('t1')).toEqual(['/w']);
   expect(r.projects.has('t3')).toBe(false);
   expect(readCodexThreads(path.join(home, 'missing')).names.size).toBe(0);
 
-  // Smart grouping puts the thread in its Codex project, even though its folder is shared.
+  // A Codex project is a folder like any other: a thread that ran elsewhere counts as in it, and
+  // shares the group with Claude sessions there.
   const S = (id: string, sessionId: string, cwd: string) => ({ id, sessionId, cwd, agent: 'codex', isSubagent: false, project: '', projectPath: '' }) as SessionSummary;
-  const list = [S('codex:t1', 't1', '/w'), S('codex:t2', 't2', '/w')];
-  groupProjects(list, 'smart', (cwd) => ({ root: cwd, isGit: false }), () => true, r.projects);
-  expect(list[0].project).toBe('Nightly jobs');
+  const list = [S('codex:t1', 't1', '/scratch/2026-10-01/x'), S('claude:c1', 'c1', '/w'), S('codex:t2', 't2', '/elsewhere')];
+  groupProjects(list, 'smart', (cwd) => ({ root: cwd, isGit: false }), () => true, new Map([['t1', '/w']]));
+  expect(list[0].project).toBe('w');
   expect(list[1].project).toBe('w');
+  expect(list[2].project).toBe('elsewhere');
   fs.rmSync(home, { recursive: true, force: true });
 });

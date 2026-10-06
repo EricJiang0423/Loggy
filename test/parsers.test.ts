@@ -176,6 +176,15 @@ describe('codex edge cases', () => {
     expect(summary.isSubagent).toBe(true);
     expect(summary.parentId).toBe('codex:parent-1');
   });
+
+  test('guardian (auto-approval review) threads are subagents of the thread they review', () => {
+    const f = writeLines('rollout-2026-10-01T11-00-00-0199a0b0-0000-7000-8000-000000000003.jsonl', [
+      { timestamp: '2026-10-01T11:00:00Z', type: 'session_meta', payload: { id: '0199a0b0-0000-7000-8000-000000000003', parent_thread_id: 'parent-2', cwd: '/w/p', thread_source: 'guardian_review', source: { subagent: { other: 'guardian' } } } },
+    ]);
+    const { summary } = summarizeFile(f, 'codex');
+    expect(summary.isSubagent).toBe(true);
+    expect(summary.parentId).toBe('codex:parent-2');
+  });
 });
 
 describe('claude: real-log regressions', () => {
@@ -396,6 +405,26 @@ describe('codex: real-log regressions', () => {
     const child = ix.summaries().find((s) => s.sessionId === kid)!;
     expect(child.uncommittedEdits).toBe(false);
     expect(child.outcome).toBe('done');
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  test('a first prompt naming one other session continues it (handoff)', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loggy-handoff-'));
+    const day = path.join(root, 'codex', 'sessions', '2026', '10', '03');
+    fs.mkdirSync(day, { recursive: true });
+    const w = (sid: string, t: string, text: string) =>
+      fs.writeFileSync(path.join(day, `rollout-${t.slice(0, 19).replace(/:/g, '-')}-${sid}.jsonl`), [meta(sid, t), ev(t, { type: 'task_started', turn_id: 'a' }), userMsg(t, text)].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    w(id(1), '2026-10-03T09:00:00Z', 'build it');
+    w(id(2), '2026-10-03T10:00:00Z', `Handoff from Loggy session codex:${id(1)}: build it`);
+    w(id(3), '2026-10-03T11:00:00Z', `compare ${id(1)} with ${id(2)}`); // two named: not a handoff
+    const { Indexer } = await import('../src/server/indexer');
+    const { Pool } = await import('../src/server/pool');
+    const ix = new Indexer({ claudeDirs: [], codexDirs: [path.join(root, 'codex')] }, new Pool(undefined), path.join(root, 'data'));
+    await ix.scan();
+    const by = new Map(ix.summaries().map((s) => [s.sessionId, s]));
+    expect(by.get(id(2))!.continues).toBe(`codex:${id(1)}`);
+    expect(by.get(id(1))!.continues).toBeUndefined();
+    expect(by.get(id(3))!.continues).toBeUndefined();
     fs.rmSync(root, { recursive: true, force: true });
   });
 

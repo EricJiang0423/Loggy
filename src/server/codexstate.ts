@@ -1,14 +1,14 @@
 // What the Codex app knows about its threads, read-only: the current thread names
 // (session_index.jsonl keeps every rename; the latest wins) and the projects the user put
-// threads in (.codex-global-state.json).
+// threads in (.codex-global-state.json), as that project's folders.
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 export interface CodexThreads {
   names: Map<string, string>;
-  /** thread id -> Codex app project name */
-  projects: Map<string, string>;
+  /** thread id -> folders of the Codex app project the user put it in */
+  projects: Map<string, string[]>;
 }
 
 const cache = new Map<string, { key: string; value: CodexThreads }>();
@@ -49,13 +49,13 @@ export function readCodexThreads(codexHome: string): CodexThreads {
     // no index
   }
 
-  const projects = new Map<string, string>();
+  const projects = new Map<string, string[]>();
   try {
     const g = JSON.parse(fs.readFileSync(state, 'utf8'));
     const local = g['local-projects'] ?? {};
     for (const [thread, a] of Object.entries<{ projectId?: string }>(g['thread-project-assignments'] ?? {})) {
-      const name = a?.projectId ? local[a.projectId]?.name : undefined;
-      if (typeof name === 'string' && name.trim()) projects.set(thread, name.trim());
+      const roots = a?.projectId ? local[a.projectId]?.rootPaths : undefined;
+      if (Array.isArray(roots) && typeof roots[0] === 'string') projects.set(thread, roots);
     }
   } catch {
     // no app state

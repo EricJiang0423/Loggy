@@ -69,3 +69,13 @@ test('repo, git root and folder modes', () => {
   const folder = run(list(), 'folder');
   expect(folder.c6).toBe('sub');
 });
+
+test('a folder whose origin changed keeps one project: the latest recorded remote', () => {
+  const list = [
+    S('x1', '/gone/qlib', { repo: 'https://github.com/upstream/qlib.git', start: 1 }),
+    S('x2', '/gone/qlib', { repo: 'https://github.com/me/qlib.git', start: 2 }),
+    S('c1', '/gone/qlib'),
+  ];
+  const p = run(list, 'smart');
+  expect(new Set([p.x1, p.x2, p.c1])).toEqual(new Set(['qlib']));
+});

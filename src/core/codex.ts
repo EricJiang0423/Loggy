@@ -296,7 +296,8 @@ export function codexRecord(s: AccState, d: Json, sink?: DetailSink, responses?:
       if (p.git?.branch) s.branch = p.git.branch;
       if (typeof p.git?.repository_url === 'string') s.repo = p.git.repository_url;
       if (typeof p.forked_from_id === 'string') s.forkedFrom = p.forked_from_id;
-      const parent = findParent(p.source);
+      // Guardian (auto-approval review) threads keep the parent at the top level, not in source.
+      const parent = findParent(p.source) ?? (typeof p.parent_thread_id === 'string' ? p.parent_thread_id : undefined);
       if (parent) {
         s.parentId = parent;
         s.isSubagent = true;
