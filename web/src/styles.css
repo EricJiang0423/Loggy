@@ -656,7 +656,7 @@ label.chk {
   position: absolute;
   left: 0;
   right: 0;
-  height: 54px;
+  height: 70px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
@@ -1404,4 +1404,71 @@ pre.snippet {
   .form {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------- summaries, rewinds, questions ---------- */
+.row .next {
+  grid-column: 1 / -1;
+  color: var(--accent-ink);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-title {
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
+.ai-sec {
+  margin-top: 8px;
+}
+
+.ai-sec .ai-h {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.ai-sec.nextSteps .ai-h,
+.ai-sec.concerns .ai-h {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rewound {
+  opacity: 0.5;
+}
+
+tr.rewound td {
+  text-decoration: line-through;
+  text-decoration-color: var(--line-2);
+}
+
+.tl-item.system.rewind {
+  color: var(--ink-2);
+  border-top: 1px dashed var(--line-2);
+  border-bottom: 1px dashed var(--line-2);
+  width: 100%;
+  text-align: center;
+  padding: 4px 0;
+}
+
+.tl-note {
+  align-self: center;
+  font-size: 11px;
+}
+
+.q-block + .q-block {
+  margin-top: 6px;
+}
+
+.q-opt {
+  color: var(--ink-2);
+}
+
+.q-opt.chosen {
+  color: var(--ink);
+  font-weight: 600;
 }

@@ -4,7 +4,7 @@ import { compact, dateTime, duration, money } from '../format';
 import { useI18n } from '../i18n';
 import { AgentBadge, StatusBadge } from './common';
 
-const ROW = 54;
+const ROW = 70;
 const OVERSCAN = 8;
 
 /** Virtualized list: only the rows in view are rendered. */
@@ -61,7 +61,7 @@ export function SessionList({ sessions, selected, onSelect }: { sessions: Sessio
       >
         <div className="title">
           <StatusBadge s={s} />
-          <span className="t">{s.title || s.sessionId}</span>
+          <span className="t">{(s.titleSource === 'prompt' || s.titleSource === 'none') && s.ai ? s.ai.title : s.title || s.sessionId}</span>
         </div>
         <div className="right num">
           {(s.linesAdded > 0 || s.linesRemoved > 0) && (
@@ -81,6 +81,7 @@ export function SessionList({ sessions, selected, onSelect }: { sessions: Sessio
           {s.commits > 0 && <span>{t('out.commits', { n: s.commits })}</span>}
           {(s.children ?? 0) > 0 && <span>{t('detail.subagents', { n: s.children! })}</span>}
         </div>
+        <div className="next">{s.ai && !s.ai.complete && s.ai.next[0] ? t('list.next', { s: s.ai.next[0] }) : ''}</div>
       </div>,
     );
   }

@@ -91,6 +91,8 @@ export interface SessionSummary {
   rewinds?: number;
   /** User inputs that a rewind took back. */
   rewoundInputs?: number;
+  /** Short form of the saved AI summary (filled by the server). */
+  ai?: { title: string; type: string; next: string[]; complete: boolean; ts: number };
   /** Most edited top-level directory relative to cwd. */
   component?: string;
   hasPlan: boolean;
@@ -170,15 +172,26 @@ export interface CompletionCheck {
   workComplete: boolean | null;
 }
 
+export type WorkType = 'implementation' | 'bugfix' | 'refactor' | 'research' | 'review' | 'docs' | 'ops' | 'other';
+
+/** AI summary. Every summary has the same fields; `format` is the layout version. */
 export interface AiSummary {
+  id?: string;
+  format?: number;
   lang: string;
   model: string;
   createdAt: number;
+  /** The session as it was when summarized, to tell whether it changed since. */
+  basis?: { end: number; turns: number };
   title: string;
   bullets: string[];
   decisions: string[];
+  unverified?: string[];
+  concerns?: string[];
+  openQuestions?: string[];
+  nextSteps?: string[];
   requests: { text: string; kind: 'consult' | 'request' | 'follow_up' | 'polish'; done: boolean }[];
-  type: string;
+  type: WorkType | string;
   workComplete: boolean;
 }
 
@@ -222,8 +235,12 @@ export interface AiSettingsView {
   apiKeyEnv: string;
   headers: Record<string, string>;
   hasKey: boolean;
+  auto: boolean;
+  lang: 'zh-CN' | 'en';
   /** Where the endpoint in use comes from, if any. */
   source?: 'settings' | 'env';
+  /** Last background run. */
+  autoStatus?: { running: boolean; lastRun?: number; done: number; pending: number; failed: number; lastError?: string };
 }
 
 export interface ServerState {

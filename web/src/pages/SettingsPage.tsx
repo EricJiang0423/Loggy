@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Theme } from '../App';
 import { api, type AiForm } from '../api';
 import { Card, Seg } from '../components/common';
-import { duration, int } from '../format';
+import { duration, int, relative } from '../format';
 import { useI18n, type Lang } from '../i18n';
 import { refreshServer, refreshSessions, useStore } from '../store';
 
@@ -139,7 +139,7 @@ function parseHeaders(text: string): Record<string, string> {
 }
 
 function AiSettings() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const server = useStore((s) => s.server)!;
   const saved = server.ai;
   const [form, setForm] = useState<AiForm>({ ...saved });
@@ -169,6 +169,17 @@ function AiSettings() {
     }
   };
   const openai = form.provider === 'openai';
+  const status = saved.autoStatus;
+  const runAuto = async () => {
+    await api.runAuto();
+    await refreshServer();
+  };
+  // Poll while a background run is going.
+  useEffect(() => {
+    if (!status?.running) return;
+    const id = window.setInterval(() => void refreshServer(), 3000);
+    return () => window.clearInterval(id);
+  }, [status?.running]);
   return (
     <>
       <p className="muted">
@@ -180,6 +191,20 @@ function AiSettings() {
           <input type="checkbox" checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />
           {t('set.ai.enabled')}
         </label>
+        <span />
+        <label className="chk">
+          <input type="checkbox" checked={form.auto} onChange={(e) => set('auto', e.target.checked)} />
+          {t('set.ai.auto')}
+        </label>
+        <span className="lbl">{t('set.ai.lang')}</span>
+        <Seg
+          value={form.lang}
+          onChange={(v) => set('lang', v)}
+          options={[
+            { value: 'zh-CN', label: '简体中文' },
+            { value: 'en', label: 'English' },
+          ]}
+        />
         <span className="lbl">{t('set.ai.format')}</span>
         <Seg
           value={form.provider}
@@ -239,6 +264,21 @@ function AiSettings() {
           {result && <span className={result.ok ? 'add' : 'err'}>{result.text}</span>}
         </div>
       </div>
+      {saved.auto && server.aiAvailable && (
+        <div className="row-inline" style={{ marginBottom: 6 }}>
+          <span className="muted">
+            {status?.running
+              ? t('set.ai.autoRunning', { done: status.done, pending: status.pending })
+              : status?.lastRun
+                ? t('set.ai.autoStatus', { time: relative(status.lastRun, lang), done: status.done, failed: status.failed, pending: status.pending })
+                : ''}
+            {status?.lastError ? ` ${status.lastError}` : ''}
+          </span>
+          <button className="btn" disabled={status?.running} onClick={() => void runAuto()}>
+            {t('set.ai.runNow')}
+          </button>
+        </div>
+      )}
       <p className="muted" style={{ fontSize: 12 }}>
         {t('set.ai.privacy')}
       </p>

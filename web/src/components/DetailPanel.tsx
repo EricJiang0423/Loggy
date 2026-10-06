@@ -174,6 +174,7 @@ function Header({
         <span title={t('detail.ctx')}>
           ctx <b>{pct(s.ctxPeakPct, lang)}</b>
         </span>
+        {(s.rewinds ?? 0) > 0 && <span>{t('detail.rewinds', { n: s.rewinds!, m: s.rewoundInputs ?? 0 })}</span>}
       </div>
     </div>
   );
@@ -288,6 +289,17 @@ function relPath(p: string, cwd: string): string {
   return cwd && p.startsWith(cwd + '/') ? p.slice(cwd.length + 1) : shortPath(p);
 }
 
+/** Every summary is shown in the same order; empty sections are left out. */
+const AI_SECTIONS = [
+  ['bullets', 'ai.bullets'],
+  ['decisions', 'ai.decisions'],
+  ['unverified', 'ai.unverified'],
+  ['concerns', 'ai.concerns'],
+  ['openQuestions', 'ai.openQuestions'],
+  ['nextSteps', 'ai.nextSteps'],
+] as const satisfies readonly (readonly [keyof NonNullable<SessionDetail['ai']>, Key])[];
+const TYPES = ['implementation', 'bugfix', 'refactor', 'research', 'review', 'docs', 'ops', 'other'];
+
 function AiCard({ s, d, onAi }: { s: SessionSummary; d: SessionDetail; onAi: (ai: SessionDetail['ai']) => void }) {
   const { t, lang } = useI18n();
   const available = useStore((x) => x.server?.aiAvailable);
@@ -315,26 +327,23 @@ function AiCard({ s, d, onAi }: { s: SessionSummary; d: SessionDetail; onAi: (ai
     <Card title={t('ai.title')} extra={button}>
       {ai ? (
         <>
-          <ul className="bullets">
-            {ai.bullets.map((b, i) => (
-              <li key={i}>{b}</li>
-            ))}
-          </ul>
-          {ai.decisions.length > 0 && (
-            <>
-              <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-                {t('ai.decisions')}
+          <div className="ai-title">{ai.title}</div>
+          {AI_SECTIONS.map(([key, label]) =>
+            (ai[key] ?? []).length > 0 ? (
+              <div className={`ai-sec ${key}`} key={key}>
+                <div className="ai-h">{t(label)}</div>
+                <ul className="bullets">
+                  {(ai[key] ?? []).map((b, i) => (
+                    <li key={i}>{b}</li>
+                  ))}
+                </ul>
               </div>
-              <ul className="bullets">
-                {ai.decisions.map((b, i) => (
-                  <li key={i}>{b}</li>
-                ))}
-              </ul>
-            </>
+            ) : null,
           )}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+          {ai.format !== 2 && <div className="muted" style={{ fontSize: 11 }}>{t('ai.oldFormat')}</div>}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
             <span className="badge">
-              {t('ai.type')}: {ai.type}
+              {t('ai.type')}: {TYPES.includes(ai.type) ? t(`ai.type.${ai.type}` as Key) : ai.type}
             </span>
             {s.component && <span className="badge">{s.component}</span>}
             <span className="muted" style={{ fontSize: 11 }}>
@@ -377,7 +386,7 @@ function Requests({ d }: { d: SessionDetail }) {
         const icon = turn.interrupted ? '✗' : !turn.ended ? '…' : k ? (k.done ? '✓' : '○') : '✓';
         const color = turn.interrupted ? 'var(--serious-ink)' : !turn.ended ? 'var(--accent-ink)' : k && !k.done ? 'var(--warn-ink)' : 'var(--good-ink)';
         return (
-          <div className="req" key={turn.idx}>
+          <div className={`req ${turn.rewound ? 'rewound' : ''}`} key={turn.idx}>
             <span className="ic" style={{ color }}>
               {icon}
             </span>
@@ -390,6 +399,7 @@ function Requests({ d }: { d: SessionDetail }) {
               </div>
               <div className="muted num" style={{ fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span>{time(turn.start, lang)}</span>
+                {turn.rewound && <span>{t('turns.rewound')}</span>}
                 {turn.interrupted && <span>{t('req.interrupted')}</span>}
                 {!turn.ended && !turn.interrupted && <span>{t('req.running')}</span>}
                 {turn.commits.map((c) => (
@@ -426,7 +436,7 @@ function Turns({ d }: { d: SessionDetail }) {
           </thead>
           <tbody>
             {d.turns.map((turn) => (
-              <tr key={turn.idx}>
+              <tr key={turn.idx} className={turn.rewound ? 'rewound' : ''}>
                 <td className="num">{turn.idx}</td>
                 <td className="num" style={{ whiteSpace: 'nowrap' }}>
                   {time(turn.start, lang)}
@@ -434,6 +444,7 @@ function Turns({ d }: { d: SessionDetail }) {
                 </td>
                 <td>
                   <span className="clip">{turn.prompt}</span>
+                  {turn.rewound && <span className="muted"> · {t('turns.rewound')}</span>}
                 </td>
                 <td className="r">{compact(turn.tokens, lang)}</td>
                 <td className="r">{money(turn.costUSD, lang)}</td>

@@ -55,6 +55,8 @@ export class Indexer extends EventEmitter {
   private gitRoots = new Map<string, string>();
   private places = new Map<string, Place>();
   groupBy: GroupBy = 'smart';
+  /** AI summary per session id, attached to the list (kept by the server). */
+  aiLite = new Map<string, NonNullable<SessionSummary['ai']>>();
   private known: Discovered[] = [];
   readonly cacheFile: string;
 
@@ -421,7 +423,7 @@ export class Indexer extends EventEmitter {
     const out: SessionSummary[] = [];
     for (const s of merged) {
       const k = kids.get(s.id);
-      out.push({ ...s, status: liveStatus(s, now), children: k?.n ?? 0, totalCostUSD: s.costUSD + (k?.cost ?? 0) });
+      out.push({ ...s, status: liveStatus(s, now), children: k?.n ?? 0, totalCostUSD: s.costUSD + (k?.cost ?? 0), ai: this.aiLite.get(s.id) });
     }
     return out;
   }
@@ -575,6 +577,12 @@ export class Indexer extends EventEmitter {
       this.places.set(cwd, p);
     }
     return p;
+  }
+
+  /** Marks a session as changed (e.g. a new AI summary) so clients fetch it again. */
+  touch(id: string): void {
+    for (const e of this.pagesOf(id)) e.gen = ++this.gen;
+    this.emit('update');
   }
 
   /** Changes how sessions are grouped into projects; clients get a full list next time. */

@@ -30,6 +30,8 @@ export interface AiForm {
   auth: 'x-api-key' | 'bearer';
   apiKeyEnv: string;
   headers: Record<string, string>;
+  auto: boolean;
+  lang: 'zh-CN' | 'en';
   apiKey?: string;
 }
 
@@ -47,5 +49,6 @@ export const api = {
   setGroupBy: (groupBy: ServerState['groupBy']) => post<ServerState>(`api/settings?groupBy=${groupBy}`),
   saveAi: (body: AiForm) => postJson<ServerState>('api/settings/ai', body),
   testAi: (body: AiForm) => postJson<{ ok: boolean; model: string; ms: number; reply?: string; error?: string }>('api/ai/test', body),
+  runAuto: () => postJson<NonNullable<ServerState['ai']['autoStatus']>>('api/ai/auto/run', {}),
   rescan: (full: boolean) => post<{ ok: boolean }>(`api/rescan${full ? '?full=1' : ''}`),
 };

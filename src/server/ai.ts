@@ -24,6 +24,10 @@ export interface AiSettings {
   /** Anthropic format only: send the key as x-api-key or as a bearer token. */
   auth?: 'x-api-key' | 'bearer';
   headers?: Record<string, string>;
+  /** Summarize recent sessions in the background. */
+  auto?: boolean;
+  /** Language of every summary, so they all read the same. */
+  lang?: 'zh-CN' | 'en';
 }
 
 /** The endpoint actually used. */
@@ -55,10 +59,19 @@ export function resolveAi(s: AiSettings | undefined, env: Record<string, string 
   return { provider: 'anthropic', baseURL: env.ANTHROPIC_BASE_URL || undefined, model: defaultModel, apiKey, auth: env.ANTHROPIC_API_KEY ? 'x-api-key' : 'bearer', headers: {}, source: 'env' };
 }
 
+/** Version of the summary layout; summaries in an older layout are made again. */
+export const SUMMARY_FORMAT = 2;
+
+export const WORK_TYPES = ['implementation', 'bugfix', 'refactor', 'research', 'review', 'docs', 'ops', 'other'] as const;
+
 const SummarySchema = z.object({
   title: z.string(),
   bullets: z.array(z.string()),
   decisions: z.array(z.string()),
+  unverified: z.array(z.string()),
+  concerns: z.array(z.string()),
+  openQuestions: z.array(z.string()),
+  nextSteps: z.array(z.string()),
   requests: z.array(
     z.object({
       text: z.string(),
@@ -66,7 +79,7 @@ const SummarySchema = z.object({
       done: z.boolean(),
     }),
   ),
-  type: z.string(),
+  type: z.enum(WORK_TYPES),
   workComplete: z.boolean(),
 });
 
@@ -86,6 +99,21 @@ export function readAiSummary(dataDir: string, id: string): AiSummary | undefine
   } catch {
     return undefined;
   }
+}
+
+/** Every saved summary that knows its session id. */
+export function readAllAiSummaries(dataDir: string): Map<string, AiSummary> {
+  const out = new Map<string, AiSummary>();
+  for (const f of fs.readdirSync(cacheDir(dataDir))) {
+    if (!f.endsWith('.json')) continue;
+    try {
+      const s = JSON.parse(fs.readFileSync(path.join(cacheDir(dataDir), f), 'utf8')) as AiSummary;
+      if (s.id) out.set(s.id, s);
+    } catch {
+      // ignore a broken file
+    }
+  }
+  return out;
 }
 
 /** Builds a compact transcript: user requests, replies, tools, files and commits. */
@@ -117,17 +145,22 @@ export function transcriptFor(d: Omit<SessionDetail, 'ai'>): string {
 
 const SYSTEM = `You summarize a coding-agent session for the person who ran it, so they can see at a glance what happened.
 Write in the requested language. Be concrete and short; do not invent facts that are not in the transcript.
-- title: what the session was about, at most 60 characters.
-- bullets: 2-6 short points on what was done or found.
-- decisions: choices made during the session and why (empty if none).
+Every summary has the same fields, in this order. Lists may be empty; never add other fields.
+- title: what the session was about, at most 60 characters, no trailing period.
+- bullets: 2-6 short points on what was done or found, each one sentence.
+- decisions: choices made during the session and why.
+- unverified: things that were done or claimed but not checked (tests not run, UI not looked at, assumptions).
+- concerns: risks or problems that may still be there.
+- openQuestions: questions to the user that were not answered.
+- nextSteps: concrete things left for the user to do next, most important first, at most 3.
 - requests: every user request in order. kind is "consult" for questions or discussion, "request" for the first ask of a task, "follow_up" for an added or changed ask, "polish" for finishing touches such as commit, rename or docs. done says whether the agent completed it.
-- type: one or two words for the kind of work (for example implementation, bug fix, refactor, research, review, docs).
+- type: exactly one of implementation, bugfix, refactor, research, review, docs, ops, other.
 - workComplete: true when every request was finished and nothing is left for the user to follow up.`;
 
 const JSON_SHAPE = `Reply with only a JSON object, no prose and no code fences, with these keys:
-title (string), bullets (array of strings), decisions (array of strings),
+title (string), bullets, decisions, unverified, concerns, openQuestions, nextSteps (arrays of strings),
 requests (array of {"text": string, "kind": "consult" | "request" | "follow_up" | "polish", "done": boolean}),
-type (string), workComplete (boolean).`;
+type ("implementation" | "bugfix" | "refactor" | "research" | "review" | "docs" | "ops" | "other"), workComplete (boolean).`;
 
 /** Reads the summary JSON from a model reply (tolerates code fences and stray text). */
 export function parseSummaryJson(text: string): z.infer<typeof SummarySchema> {
@@ -190,7 +223,8 @@ export async function summarizeWithAi(dataDir: string, c: AiConfig, detail: Omit
   } else {
     parsed = parseSummaryJson(await complete(c, `${SYSTEM}\n\n${JSON_SHAPE}`, user, 8000));
   }
-  const summary: AiSummary = { ...parsed, lang, model: c.model, createdAt: Date.now() };
+  const s = detail.summary;
+  const summary: AiSummary = { ...parsed, id: s.id, format: SUMMARY_FORMAT, lang, model: c.model, createdAt: Date.now(), basis: { end: s.end, turns: s.turns } };
   fs.writeFileSync(path.join(cacheDir(dataDir), `${keyOf(detail.summary.id)}.json`), JSON.stringify(summary));
   return summary;
 }

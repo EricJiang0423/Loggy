@@ -6,6 +6,10 @@
 
 - **Claude Code rewind support.** A rewind (or continuing in a new session) forks the conversation into a new file that starts with a copy of the old one. Loggy now shows the files as one session, counts the copied part once, and marks the turns the rewind took back.
 
+- **Automatic AI summaries.** Turn them on in Settings → AI summaries: every session of the last 7 days gets a summary, and a session that changes is summarized again at most once a day (running sessions wait until they stop). The list shows the summary title and the next step.
+- **One summary layout** for every model: title, what happened, decisions, not verified, concerns, open questions, next steps, request status, a fixed work type and whether the work is complete, in the language chosen in Settings. Older summaries are replaced on the next run.
+- **Timeline views:** all, without intermediate output (your inputs and each turn's last reply), or only your inputs. Inputs are numbered, and question cards mark the chosen answer.
+
 ### Removed
 
 - Usage meters (Codex and Claude 5h / 7d), the `/api/usage` endpoint and the `loggy statusline` command.

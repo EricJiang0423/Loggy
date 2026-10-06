@@ -7,6 +7,8 @@ import zlib from 'node:zlib';
 import { completionOf } from '../core/acc.js';
 import type { SessionDetail, ServerState } from '../shared/types.js';
 import { aiErrorMessage, readAiSummary, resolveAi, summarizeWithAi, testAi, type AiSettings } from './ai.js';
+import { AutoSummarizer } from './autosum.js';
+import type { AiSummary } from '../shared/types.js';
 import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
@@ -30,7 +32,7 @@ interface DetailCacheEntry {
   detail: Omit<SessionDetail, 'ai'>;
 }
 
-export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: string): http.Server {
+export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: string, opts: { autoSummaries?: boolean } = {}): http.Server {
   const clients = new Set<http.ServerResponse>();
   const detailCache = new Map<string, DetailCacheEntry>();
   const allowedHosts = new Set<string>();
@@ -75,10 +77,28 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         apiKeyEnv: saved.apiKeyEnv ?? '',
         headers: saved.headers ?? {},
         hasKey: Boolean(saved.apiKey),
+        auto: saved.auto === true,
+        lang: saved.lang ?? 'en',
         source: c?.source,
+        autoStatus: auto.status,
       },
     };
   }
+
+  const lite = (a: AiSummary) => ({ title: a.title, type: a.type, next: a.nextSteps ?? [], complete: a.workComplete, ts: a.createdAt });
+  const auto = new AutoSummarizer({
+    dataDir: cfg.dataDir,
+    summaries: () => indexer.summaries(),
+    detailOf: (id) => detailOf(id),
+    config: () => ({ ai: currentAi(), settings: readSettings(cfg.dataDir).ai }),
+    onSaved: (a) => {
+      if (!a.id) return;
+      indexer.aiLite.set(a.id, lite(a));
+      indexer.touch(a.id);
+    },
+  });
+  for (const [id, a] of auto.saved) indexer.aiLite.set(id, lite(a));
+  if (opts.autoSummaries !== false) auto.start();
 
   async function detailOf(id: string): Promise<Omit<SessionDetail, 'ai'> | undefined> {
     const pages = indexer.pagesOf(id);
@@ -157,11 +177,12 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         const aiCfg = currentAi();
         if (!aiCfg) return sendJson(req, res, { error: 'AI summaries are not set up. Configure them in Settings.' }, 400);
         const id = url.searchParams.get('id') ?? '';
-        const lang = url.searchParams.get('lang') ?? 'en';
+        const lang = readSettings(cfg.dataDir).ai?.lang ?? url.searchParams.get('lang') ?? 'en';
         const d = await detailOf(id);
         if (!d) return sendJson(req, res, { error: 'not found' }, 404);
         try {
           const ai = await summarizeWithAi(cfg.dataDir, aiCfg, d, lang);
+          auto.remember(ai);
           return sendJson(req, res, { ai });
         } catch (err) {
           return sendJson(req, res, { error: aiErrorMessage(err) }, 502);
@@ -175,6 +196,11 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         writeSettings(cfg.dataDir, { groupBy });
         return sendJson(req, res, state());
       }
+      case '/api/ai/auto/run':
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        if (url.searchParams.get('wait') === '1') return sendJson(req, res, await auto.run());
+        void auto.run();
+        return sendJson(req, res, auto.status);
       case '/api/settings/ai':
       case '/api/ai/test': {
         if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
@@ -221,7 +247,10 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
       for (const h of ['localhost', '127.0.0.1', '[::1]']) allowedHosts.add(`${h}:${addr.port}`);
     }
   });
-  server.on('close', () => clearInterval(heartbeat));
+  server.on('close', () => {
+    clearInterval(heartbeat);
+    auto.stop();
+  });
   return server;
 }
 
@@ -302,6 +331,8 @@ export function mergeAi(saved: AiSettings | undefined, body: Record<string, unkn
     apiKeyEnv: str(body.apiKeyEnv) || undefined,
     headers,
     apiKey: body.apiKey === undefined ? saved?.apiKey : str(body.apiKey) || undefined,
+    auto: body.auto === undefined ? saved?.auto : body.auto === true,
+    lang: body.lang === 'zh-CN' || body.lang === 'en' ? body.lang : saved?.lang,
   };
   if (next.baseURL && !/^https?:\/\//i.test(next.baseURL)) throw new Error('The address must start with http:// or https://');
   return next;

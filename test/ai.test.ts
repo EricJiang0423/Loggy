@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { parseSummaryJson, resolveAi, summarizeWithAi, testAi } from '../src/server/ai';
 import { readSettings, writeSettings } from '../src/server/settings';
 
-const SUMMARY = { title: 'Calendar view', bullets: ['Added a week view'], decisions: [], requests: [{ text: 'add it', kind: 'request', done: true }], type: 'implementation', workComplete: true };
+const SUMMARY = { title: 'Calendar view', bullets: ['Added a week view'], decisions: [], unverified: [], concerns: [], openQuestions: [], nextSteps: [], requests: [{ text: 'add it', kind: 'request', done: true }], type: 'implementation', workComplete: true };
 
 const detail = {
   summary: { id: 'claude:s1', project: 'demo', cwd: '/w/demo', branch: 'main' },

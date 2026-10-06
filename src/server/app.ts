@@ -17,7 +17,7 @@ export interface Running {
   indexer: Indexer;
 }
 
-export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: URL | null } = {}): Promise<Running> {
+export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: URL | null; autoSummaries?: boolean } = {}): Promise<Running> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webDir = path.join(here, 'web');
   ensureDir(cfg.dataDir);
@@ -42,7 +42,7 @@ export async function start(cfg: Config, opts: { quiet?: boolean; workerUrl?: UR
   if (cfg.rebuild) indexer.clearCache();
   else indexer.loadCache();
 
-  const server = createServer(cfg, indexer, pool, webDir);
+  const server = createServer(cfg, indexer, pool, webDir, { autoSummaries: opts.autoSummaries });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(cfg.port, cfg.host, () => resolve());
