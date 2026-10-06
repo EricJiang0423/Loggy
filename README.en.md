@@ -79,7 +79,7 @@ loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
       [--data-dir <dir>] [--ai-model <id>]
 ```
 
-By default Loggy reads `$CLAUDE_CONFIG_DIR` and `~/.claude/projects`, `$CODEX_HOME` or `~/.codex/sessions` plus `archived_sessions`, and `$PI_CODING_AGENT_SESSION_DIR` or `sessions` under `$PI_CODING_AGENT_DIR` and `~/.pi/agent`. Pass `--claude-dir` / `--codex-dir` / `--pi-dir` more than once to include several accounts.
+By default Loggy reads `$CLAUDE_CONFIG_DIR` and `~/.claude/projects`, `$CODEX_HOME` or `~/.codex/sessions` plus `archived_sessions`, and Pi's session directory from `$PI_CODING_AGENT_SESSION_DIR`, `$PI_CODING_AGENT_DIR/sessions` or `~/.pi/agent/sessions`. Pass `--claude-dir` / `--codex-dir` / `--pi-dir` more than once to include several accounts.
 
 ### AI summaries (optional)
 

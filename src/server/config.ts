@@ -32,13 +32,15 @@ export function defaultCodexDirs(): string[] {
   return [process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex')];
 }
 
+/**
+ * Both variables override where Pi keeps its sessions, so either one replaces the default
+ * rather than adding to it, the way $CODEX_HOME does.
+ */
 export function defaultPiDirs(): string[] {
-  const custom = process.env.PI_CODING_AGENT_SESSION_DIR;
-  if (custom) return [path.resolve(custom)];
-  const dirs = new Set<string>();
-  if (process.env.PI_CODING_AGENT_DIR) dirs.add(path.join(path.resolve(process.env.PI_CODING_AGENT_DIR), 'sessions'));
-  dirs.add(path.join(os.homedir(), '.pi', 'agent', 'sessions'));
-  return [...dirs];
+  const sessionDir = process.env.PI_CODING_AGENT_SESSION_DIR;
+  if (sessionDir) return [path.resolve(sessionDir)];
+  const agentDir = process.env.PI_CODING_AGENT_DIR;
+  return [path.join(agentDir ? path.resolve(agentDir) : path.join(os.homedir(), '.pi', 'agent'), 'sessions')];
 }
 
 export function defaultDataDir(): string {

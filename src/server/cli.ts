@@ -25,8 +25,8 @@ Options
   --claude-dir <dir>         Claude config dir containing projects/ (repeatable;
                              default $CLAUDE_CONFIG_DIR and ~/.claude)
   --codex-dir <dir>          Codex home containing sessions/ (repeatable; default $CODEX_HOME or ~/.codex)
-  --pi-dir <dir>             Pi session dir (repeatable; default $PI_CODING_AGENT_SESSION_DIR or
-                             $PI_CODING_AGENT_DIR/sessions and ~/.pi/agent/sessions)
+  --pi-dir <dir>             Pi session dir (repeatable; default $PI_CODING_AGENT_SESSION_DIR,
+                             $PI_CODING_AGENT_DIR/sessions, or ~/.pi/agent/sessions)
   --data-dir <dir>           where Loggy keeps its cache (default $LOGGY_HOME or ~/.loggy)
   --ai-model <id>            model for optional AI summaries (default ${DEFAULT_AI_MODEL})
   --rebuild                  ignore the cache and parse every log again

@@ -238,17 +238,17 @@ function assistantRecord(s: AccState, x: PiX, d: Json, ts: number, sink?: Detail
       markInterrupted(s);
       return;
     case 'error':
-      // The request itself failed (rate limit, connection): the turn ends unfinished, as it does
-      // for Claude Code's isApiErrorMessage records.
+      // A failed request (rate limit, connection). Pi retries inside the same turn, so the turn is
+      // left open: a reply that arrives later ends it normally, and one that never arrives keeps
+      // the turn unfinished, which is what makes the session count as abandoned.
       s.apiErrors++;
-      markTurnEnded(s, ts, false);
-      const failed = currentTurn(s);
-      if (failed) failed.interrupted = true;
       return;
     case 'toolUse':
       s.pendingTool = true;
       return;
     default:
+      // 'pending' is a streaming placeholder Pi does not persist, 'length' means the reply was cut
+      // off at the output limit and 'deferred' awaits retrieval: all three leave the turn open.
       return;
   }
 }

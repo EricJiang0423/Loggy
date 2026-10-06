@@ -634,16 +634,33 @@ describe('pi edge cases', () => {
     expect(s.toolCalls).toBe(1);
   });
 
-  test('aborted and error stop reasons end the turn differently', () => {
+  test('an abort ends the turn as an interrupt', () => {
     const aborted = summarizeFile(file([header(), user('stop'), asst([], 'aborted', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, { errorMessage: 'Operation aborted' })]), 'pi').summary;
     expect(aborted.interrupts).toBe(1);
     expect(aborted.apiErrors).toBe(0);
-    expect(aborted.lastTurn.ended).toBe(true);
+    expect(aborted.lastTurn).toEqual(expect.objectContaining({ ended: true, interrupted: true }));
+    expect(aborted.outcome).toBe('abandoned');
+  });
+
+  test('a failed request leaves the turn open until a reply arrives', () => {
+    // Pi retries inside the same turn, so an error that is followed by a reply is a finished turn.
     const failed = summarizeFile(file([header(), user('go'), asst([], 'error', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, { errorMessage: 'Connection error.' })]), 'pi').summary;
     expect(failed.apiErrors).toBe(1);
     expect(failed.interrupts).toBe(0);
-    expect(failed.lastTurn.ended).toBe(true);
+    expect(failed.lastTurn.ended).toBe(false);
     expect(failed.outcome).toBe('abandoned');
+    const retried = summarizeFile(file([header(), user('go'), asst([], 'error', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, { errorMessage: 'Connection error.' }), asst([{ type: 'text', text: 'Got it on the second try.' }], 'stop', {})]), 'pi').summary;
+    expect(retried.apiErrors).toBe(1);
+    expect(retried.turns).toBe(1);
+    expect(retried.lastTurn).toEqual(expect.objectContaining({ ended: true, interrupted: false }));
+    expect(retried.outcome).toBe('done');
+  });
+
+  test('a reply cut off at the output limit keeps the turn open', () => {
+    const s = summarizeFile(file([header(), user('write the file'), asst([{ type: 'text', text: 'Here is the first half' }], 'length', {})]), 'pi').summary;
+    expect(s.lastTurn.ended).toBe(false);
+    expect(s.apiErrors).toBe(0);
+    expect(s.outcome).toBe('abandoned');
   });
 
   test('a reply that ends in a question waits for the user', () => {

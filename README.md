@@ -93,7 +93,7 @@ loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
 默认读取以下位置：
 - Claude Code：`$CLAUDE_CONFIG_DIR` 和 `~/.claude/projects`
 - Codex：`$CODEX_HOME`（或 `~/.codex`）下的 `sessions` 和 `archived_sessions`
-- Pi：`$PI_CODING_AGENT_SESSION_DIR`，或 `$PI_CODING_AGENT_DIR` 和 `~/.pi/agent` 下的 `sessions`
+- Pi：`$PI_CODING_AGENT_SESSION_DIR`、`$PI_CODING_AGENT_DIR/sessions` 或 `~/.pi/agent/sessions`
 
 有多个账号的话，可以多次传 `--claude-dir` / `--codex-dir` / `--pi-dir`。
 
