@@ -22,6 +22,7 @@ beforeAll(async () => {
       claudeDirs: [path.join(dir, 'claude')],
       codexDirs: [path.join(dir, 'codex')],
       kimiDirs: [path.join(dir, 'kimi')],
+      piDirs: [path.join(dir, 'pi', 'sessions')],
       dataDir: path.join(dir, 'data'),
       aiModel: DEFAULT_AI_MODEL,
       version: 'test',

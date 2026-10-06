@@ -1,8 +1,9 @@
 // Types shared by the server and the web UI. Keep this file free of Node imports.
 
-export type Agent = 'claude' | 'codex' | 'kimi';
+/** Every log source Loggy reads, in the order the UI shows them. */
+export const AGENTS = ['claude', 'codex', 'kimi', 'pi'] as const;
 
-export const AGENTS: Agent[] = ['claude', 'codex', 'kimi'];
+export type Agent = (typeof AGENTS)[number];
 
 /** Deterministic outcome of a finished session. */
 export type Outcome = 'done' | 'leftover' | 'abandoned' | 'empty';

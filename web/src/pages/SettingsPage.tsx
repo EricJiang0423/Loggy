@@ -3,7 +3,7 @@ import type { Theme } from '../App';
 import { api, type AiForm } from '../api';
 import { agentKey, Card, Seg } from '../components/common';
 import { duration, int, relative } from '../format';
-import { useI18n, type Lang } from '../i18n';
+import { useI18n, type Key, type Lang } from '../i18n';
 import { refreshServer, refreshSessions, useStore } from '../store';
 
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { SessionSummary } from '../../../src/shared/types';
+import { AGENTS, type SessionSummary } from '../../../src/shared/types';
 import { api } from '../api';
 import { Calendar } from '../components/Calendar';
 import { HarnessFilter, knobKey, LABELS, Seg, useDebounced, usePersisted } from '../components/common';
@@ -49,7 +49,7 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
     return () => ac.abort();
   }, [q, list.length]);
 
-  const present = useMemo(() => [...new Set(list.map((s) => s.agent))].sort((a, b) => ['claude', 'codex', 'kimi'].indexOf(a) - ['claude', 'codex', 'kimi'].indexOf(b)), [list]);
+  const present = useMemo(() => AGENTS.filter((a) => list.some((s) => s.agent === a)), [list]);
   // Every harness setting seen (e.g. permission=plan), most used first.
   const knobOptions = useMemo(() => {
     const m = new Map<string, number>();

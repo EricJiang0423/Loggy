@@ -1,4 +1,4 @@
-// Synthetic Claude Code and Codex logs in the real on-disk formats. Used by `loggy --demo`,
+// Synthetic Claude Code, Codex and Pi logs in the real on-disk formats. Used by `loggy --demo`,
 // the test suite and the performance benchmark. Nothing here comes from real sessions.
 
 import { execFileSync } from 'node:child_process';
@@ -74,6 +74,20 @@ const REPLIES = [
 ];
 const MODELS_CLAUDE = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-opus-5', 'claude-haiku-4-5'];
 const MODELS_CODEX = ['gpt-5.5-codex', 'gpt-5.5', 'gpt-5.4-mini'];
+const MODELS_PI = ['claude-sonnet-4-5', 'gpt-5.5', 'glm-5.3-flash', 'deepseek-v4.1'];
+/** Pi stores the prompt, tool declarations and skills in system messages; they are large and unread. */
+const PI_SYSTEM_TEXT = [
+  'You are an expert coding assistant operating inside pi, a coding agent harness.',
+  'You help users by reading files, executing commands, editing code, and writing new files.',
+  '',
+  '<tools>',
+  ...Array.from({ length: 12 }, (_, i) => `- tool_${i}: ${'Does a thing with files, commands and search results. '.repeat(6)}`),
+  '</tools>',
+  '',
+  '<project>',
+  `cwd: ${'/home/demo/work/orbit-web/src/ui'.repeat(4)}`,
+  '</project>',
+].join('\n');
 const FILES = ['index.ts', 'view.tsx', 'store.ts', 'handler.go', 'query.sql', 'README.md', 'train.py', 'utils.ts', 'calendar.tsx', 'api.test.ts'];
 
 class Rng {
@@ -126,11 +140,13 @@ export function generateDemo(root: string, opts: DemoOptions = {}): DemoExpectat
   const bulk = Math.max(1, opts.bulk ?? 1);
   const claudeRoot = path.join(root, 'claude', 'projects');
   const codexRoot = path.join(root, 'codex', 'sessions');
+  const piRoot = path.join(root, 'pi', 'sessions');
   fs.mkdirSync(claudeRoot, { recursive: true });
   fs.mkdirSync(codexRoot, { recursive: true });
   const kimiHome = path.join(root, 'kimi');
   fs.mkdirSync(path.join(kimiHome, 'sessions'), { recursive: true });
   fs.writeFileSync(path.join(kimiHome, 'config.toml'), KIMI_MODELS.map(([m, w]) => `[models."${m}"]\nmax_context_size = ${w}\n`).join('\n'));
+  fs.mkdirSync(piRoot, { recursive: true });
   const out: DemoExpectation[] = [];
   const projects = opts.projectsRoot ? PROJECTS.map((p) => ({ ...p, cwd: path.join(opts.projectsRoot!, path.basename(p.cwd)) })) : PROJECTS;
 
@@ -143,13 +159,15 @@ export function generateDemo(root: string, opts: DemoOptions = {}): DemoExpectat
     if (running) start = now - r.int(8, 25) * 60_000;
     else if (start > now - 3600_000) start = now - r.int(2, 6) * 3600_000;
     const project = r.pick(projects);
-    const agent = i % 7 === 4 ? 'kimi' : i % 3 === 2 ? 'codex' : 'claude';
+    const agent = i % 7 === 4 ? 'kimi' : i % 3 === 2 ? 'codex' : i % 3 === 1 ? 'pi' : 'claude';
     const exp =
       agent === 'claude'
         ? claudeSession(r, claudeRoot, project, start, running, bulk, out)
         : agent === 'kimi'
           ? kimiSession(r, kimiHome, project, start, running, bulk, out)
-          : codexSession(r, codexRoot, project, start, running, bulk);
+          : agent === 'codex'
+            ? codexSession(r, codexRoot, project, start, running, bulk)
+            : piSession(r, piRoot, project, start, running, bulk);
     out.push(exp);
   }
   return out;
@@ -532,6 +550,142 @@ function kimiSession(r: Rng, home: string, project: (typeof PROJECTS)[number], s
   return exp;
 }
 
+function piSession(r: Rng, root: string, project: (typeof PROJECTS)[number], start: number, running: boolean, bulk: number): DemoExpectation {
+  const dir = path.join(root, encodeCwd(project.cwd));
+  fs.mkdirSync(dir, { recursive: true });
+  const id = r.uuid();
+  const stamp = `${iso(start).slice(0, 23).replace(/[:.]/g, '-')}Z`;
+  const file = path.join(dir, `${stamp}_${id}.jsonl`);
+  const model = r.pick(MODELS_PI);
+  const provider = r.pick(['anthropic', 'openai', 'z-ai']);
+  const lines: string[] = [];
+  let t = start;
+  let parent: string | null = null;
+  const exp: DemoExpectation = {
+    agent: 'pi', file, sessionId: id, turns: 0, inputs: 0, tokens: 0, filesChanged: 0, linesAdded: 0, linesRemoved: 0,
+    commits: 0, pushes: 0, interrupts: 0, compactions: 0, questions: 0, subagent: false, running,
+  };
+  lines.push(JSON.stringify({ type: 'session', version: 3, id, timestamp: iso(t), cwd: project.cwd }));
+  lines.push(
+    JSON.stringify({
+      type: 'message',
+      id: r.hex(8),
+      parentId: null,
+      timestamp: iso(t),
+      message: { role: 'system', content: '', sections: { preamble: PI_SYSTEM_TEXT, tools: PI_SYSTEM_TEXT }, cwd: project.cwd, timestamp: t },
+    }),
+  );
+  const entry = (rec: Record<string, unknown>) => {
+    const eid = r.hex(8);
+    lines.push(JSON.stringify({ ...rec, id: eid, parentId: parent, timestamp: iso(t) }));
+    parent = eid;
+    return eid;
+  };
+  lines.push(JSON.stringify({ type: 'model_change', id: r.hex(8), parentId: null, timestamp: iso(t), provider, modelId: model }));
+  const touched = new Set<string>();
+  let ctx = r.int(18_000, 30_000);
+  const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  const usage = () => {
+    const inTok = r.int(20, 200);
+    const cr = ctx;
+    const out = r.int(80, 2500);
+    ctx += r.int(200, 6000);
+    exp.tokens += inTok + cr + out;
+    return { input: inTok, output: out, cacheRead: cr, cacheWrite: 0, totalTokens: inTok + cr + out };
+  };
+  const assistant = (content: unknown[], stop: string, u: Record<string, number>) => {
+    entry({ type: 'message', message: { role: 'assistant', content, provider, model, usage: { ...u, cost: zeroUsage.cost }, stopReason: stop, timestamp: t, api: 'anthropic-messages', thinkingLevel: 'medium' } });
+  };
+
+  const turns = running ? r.int(2, 4) : r.int(1, 8);
+  for (let k = 0; k < turns; k++) {
+    const prompt = k === 0 ? r.pick(PROMPTS) : r.pick(FOLLOWUPS);
+    entry({ type: 'message', message: { role: 'user', content: [{ type: 'text', text: prompt }], timestamp: t } });
+    exp.turns++;
+    exp.inputs++;
+    t += r.int(3, 20) * 1000;
+    const steps = r.int(1, 6) * bulk;
+    const lastTurn = k === turns - 1;
+    for (let st = 0; st < steps; st++) {
+      const callId = `call_${r.hex(24)}`;
+      const f = `${project.cwd}/${r.pick(project.dirs)}/${r.pick(FILES)}`;
+      const kind = r.pick(['bash', 'edit', 'edit', 'write', 'read']);
+      if (kind === 'edit' || kind === 'write') {
+        const a = kind === 'edit' ? r.int(1, 25) : r.int(3, 90);
+        const rm = kind === 'edit' ? r.int(0, 10) : 0;
+        const args =
+          kind === 'edit'
+            ? { path: f, edits: [{ oldText: 'old text '.repeat(rm), newText: 'new text '.repeat(a) }] }
+            : { path: f, content: Array.from({ length: a }, (_, i) => `line ${i} ${r.hex(6)}`).join('\n') };
+        assistant([{ type: 'toolCall', id: callId, name: kind, arguments: args }], 'toolUse', usage());
+        t += r.int(2, 30) * 1000;
+        const diff = kind === 'edit' ? patchLines(r, a, rm).join('\n') : undefined;
+        const text = diff ? `Successfully replaced 1 block(s) in ${f}.` : `Successfully wrote to ${f}`;
+        entry({ type: 'message', message: { role: 'toolResult', toolCallId: callId, toolName: kind, content: [{ type: 'text', text }], isError: false, timestamp: t, details: diff ? { diff } : undefined } });
+        exp.linesAdded += a;
+        exp.linesRemoved += rm;
+        touched.add(f);
+      } else if (kind === 'bash') {
+        const failed = r.chance(0.12);
+        assistant([{ type: 'toolCall', id: callId, name: 'bash', arguments: { command: failed ? 'npm test' : 'npm run build' } }], 'toolUse', usage());
+        t += r.int(2, 40) * 1000;
+        entry({ type: 'message', message: { role: 'toolResult', toolCallId: callId, toolName: 'bash', content: [{ type: 'text', text: failed ? 'Exit code 1\nFAIL 1 test' : 'built in 4.2s' }], isError: failed, timestamp: t } });
+      } else {
+        assistant([{ type: 'toolCall', id: callId, name: 'read', arguments: { path: f, limit: 2000 } }], 'toolUse', usage());
+        t += r.int(1, 10) * 1000;
+        entry({ type: 'message', message: { role: 'toolResult', toolCallId: callId, toolName: 'read', content: [{ type: 'text', text: '1\timport { render } from \'./ui\';' }], isError: false, timestamp: t } });
+      }
+      t += r.int(1, 10) * 1000;
+    }
+    if (running && lastTurn) {
+      // Still working: the last entry is a tool call without a result.
+      t = Date.now() - 20_000;
+      assistant([{ type: 'toolCall', id: `call_${r.hex(24)}`, name: 'bash', arguments: { command: 'npm run build' } }], 'toolUse', usage());
+      break;
+    }
+    if (r.chance(0.08) && !lastTurn) {
+      entry({ type: 'message', message: { role: 'assistant', content: [], provider, model, usage: zeroUsage, stopReason: 'aborted', timestamp: t, errorMessage: 'Operation aborted' } });
+      exp.interrupts++;
+      t += r.int(20, 120) * 1000;
+      continue;
+    }
+    if (touched.size && r.chance(0.5)) {
+      const sha = r.hex(7);
+      const msg = r.pick(['Add calendar view', 'Fix retry handler', 'Paginate list endpoint', 'Speed up augmentation']);
+      const commitId = `call_${r.hex(24)}`;
+      assistant([{ type: 'toolCall', id: commitId, name: 'bash', arguments: { command: `git add -A && git commit -m "${msg}"` } }], 'toolUse', usage());
+      t += r.int(2, 8) * 1000;
+      entry({ type: 'message', message: { role: 'toolResult', toolCallId: commitId, toolName: 'bash', content: [{ type: 'text', text: `[${project.branch} ${sha}] ${msg}\n 3 files changed, 12 insertions(+), 4 deletions(-)` }], isError: false, timestamp: t } });
+      exp.commits++;
+      if (r.chance(0.5)) {
+        const pushId = `call_${r.hex(24)}`;
+        const upToDate = r.chance(0.3);
+        assistant([{ type: 'toolCall', id: pushId, name: 'bash', arguments: { command: 'git push' } }], 'toolUse', usage());
+        t += r.int(3, 15) * 1000;
+        entry({ type: 'message', message: { role: 'toolResult', toolCallId: pushId, toolName: 'bash', content: [{ type: 'text', text: upToDate ? 'Everything up-to-date' : `To github.com:demo/${path.basename(project.cwd)}.git\n   ${project.branch} -> ${project.branch}` }], isError: false, timestamp: t } });
+        exp.pushes++;
+      }
+    }
+    if (k === 3 && r.chance(0.5)) {
+      lines.push(JSON.stringify({ type: 'compaction', id: r.hex(8), parentId: parent, timestamp: iso(t), summary: 'Earlier turns were compacted.', firstKeptEntryId: parent, tokensBefore: ctx }));
+      parent = null;
+      exp.compactions++;
+      ctx = r.int(20_000, 40_000);
+    }
+    assistant([{ type: 'text', text: r.pick(REPLIES) }], 'stop', usage());
+    t += r.int(1, 4) * 1000;
+    if (k === 0 && r.chance(0.4)) {
+      lines.push(JSON.stringify({ type: 'session_info', id: r.hex(8), parentId: parent, timestamp: iso(t), name: prompt.slice(0, 60) }));
+    }
+    if (!lastTurn) t += r.int(30, 900) * 1000;
+  }
+  exp.filesChanged = touched.size;
+  fs.writeFileSync(file, lines.join('\n') + '\n');
+  if (running) fs.utimesSync(file, new Date(), new Date());
+  else fs.utimesSync(file, new Date(t), new Date(t));
+  return exp;
+}
+
 function kimiSubagent(r: Rng, sessionDir: string, project: (typeof PROJECTS)[number], start: number, model: string): DemoExpectation {
   const file = path.join(sessionDir, 'agents', 'agent-1', 'wire.jsonl');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -633,12 +787,17 @@ export function makeDemoRepos(projectsRoot: string, exps: DemoExpectation[] = []
 export function tickDemo(expectations: DemoExpectation[]): void {
   for (const e of expectations.filter((x) => x.running)) {
     const now = new Date().toISOString();
-    const line =
-      e.agent === 'claude'
-        ? { parentUuid: null, isSidechain: false, type: 'assistant', uuid: cryptoId(), timestamp: now, cwd: '', sessionId: e.sessionId, message: { model: 'claude-opus-5-5', id: `msg_${cryptoId()}`, role: 'assistant', content: [{ type: 'tool_use', id: `toolu_${cryptoId()}`, name: 'Bash', input: { command: 'npm test' } }], stop_reason: 'tool_use', usage: { input_tokens: 3, cache_read_input_tokens: 40000, cache_creation_input_tokens: 800, output_tokens: 150 } } }
-        : e.agent === 'kimi'
-          ? { type: 'context.append_loop_event', agentId: 'main', event: { type: 'tool.call', toolCallId: `call_${cryptoId()}`, name: 'Bash', args: { command: 'npm test' } }, time: Date.now() }
-          : { timestamp: now, type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"cargo test"}', call_id: `call_${cryptoId()}` } };
+    const ts = Date.now();
+    let line: Record<string, unknown>;
+    if (e.agent === 'claude') {
+      line = { parentUuid: null, isSidechain: false, type: 'assistant', uuid: cryptoId(), timestamp: now, cwd: '', sessionId: e.sessionId, message: { model: 'claude-opus-5-5', id: `msg_${cryptoId()}`, role: 'assistant', content: [{ type: 'tool_use', id: `toolu_${cryptoId()}`, name: 'Bash', input: { command: 'npm test' } }], stop_reason: 'tool_use', usage: { input_tokens: 3, cache_read_input_tokens: 40000, cache_creation_input_tokens: 800, output_tokens: 150 } } };
+    } else if (e.agent === 'kimi') {
+      line = { type: 'context.append_loop_event', agentId: 'main', event: { type: 'tool.call', toolCallId: `call_${cryptoId()}`, name: 'Bash', args: { command: 'npm test' } }, time: ts };
+    } else if (e.agent === 'codex') {
+      line = { timestamp: now, type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"cargo test"}', call_id: `call_${cryptoId()}` } };
+    } else {
+      line = { type: 'message', id: cryptoId(), parentId: null, timestamp: now, message: { role: 'assistant', content: [{ type: 'toolCall', id: `call_${cryptoId()}`, name: 'bash', arguments: { command: 'npm test' } }], provider: 'anthropic', model: 'claude-sonnet-4-5', usage: { input: 3, output: 150, cacheRead: 40000, cacheWrite: 800, totalTokens: 40953, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: 'toolUse', timestamp: ts, api: 'anthropic-messages' } };
+    }
     fs.appendFileSync(e.file, JSON.stringify(line) + '\n');
   }
 }

@@ -14,6 +14,8 @@ export interface Config {
   codexDirs: string[];
   /** Kimi Code homes (each containing sessions/). */
   kimiDirs?: string[];
+  /** Pi session directories (each holding one subdirectory per working directory). */
+  piDirs: string[];
   dataDir: string;
   aiModel: string;
   version: string;
@@ -30,6 +32,17 @@ export function defaultClaudeDirs(): string[] {
 
 export function defaultCodexDirs(): string[] {
   return [process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex')];
+}
+
+/**
+ * Both variables override where Pi keeps its sessions, so either one replaces the default
+ * rather than adding to it, the way $CODEX_HOME does.
+ */
+export function defaultPiDirs(): string[] {
+  const sessionDir = process.env.PI_CODING_AGENT_SESSION_DIR;
+  if (sessionDir) return [path.resolve(sessionDir)];
+  const agentDir = process.env.PI_CODING_AGENT_DIR;
+  return [path.join(agentDir ? path.resolve(agentDir) : path.join(os.homedir(), '.pi', 'agent'), 'sessions')];
 }
 
 export function defaultKimiDirs(): string[] {

@@ -52,6 +52,7 @@ const en = {
   'knobs.turns': '{n} turns',
   'knobs.changes': 'Switched',
   'set.harnessHelp': 'A harness you turn off is no longer indexed and is left out of every page and statistic.',
+  'agent.pi': 'Pi',
 
   'sessions.list': 'List',
   'sessions.calendar': 'Calendar',
@@ -69,7 +70,7 @@ const en = {
   'sort.changes': 'Most changes',
   'sessions.reload': 'Reload',
   'sessions.empty': 'No sessions match these filters.',
-  'sessions.emptyAll': 'No sessions found yet. Loggy reads ~/.claude/projects, ~/.codex/sessions and ~/.kimi-code/sessions. Start a Claude Code, Codex or Kimi Code session, or run with --demo to try it out.',
+  'sessions.emptyAll': 'No sessions found yet. Loggy reads ~/.claude/projects, ~/.codex/sessions, ~/.kimi-code/sessions and ~/.pi/agent/sessions. Start a session in any of them, or run with --demo to try it out.',
   'sessions.select': 'Select a session to see its details.',
   'sessions.searchResults': '{n} match|{n} matches',
 
@@ -481,6 +482,7 @@ const zh: Dict = {
   'knobs.turns': '{n} 轮',
   'knobs.changes': '切换记录',
   'set.harnessHelp': '关掉的 Harness 不再索引，也不会出现在任何页面和统计里。',
+  'agent.pi': 'Pi',
 
   'sessions.list': '列表',
   'sessions.calendar': '日历',
@@ -498,7 +500,7 @@ const zh: Dict = {
   'sort.changes': '改动最多',
   'sessions.reload': '重新加载',
   'sessions.empty': '没有符合筛选条件的会话。',
-  'sessions.emptyAll': '还没有找到会话。Loggy 会读取 ~/.claude/projects、~/.codex/sessions 和 ~/.kimi-code/sessions。开一个 Claude Code、Codex 或 Kimi Code 会话，或者用 --demo 参数试用。',
+  'sessions.emptyAll': '还没有找到会话。Loggy 会读取 ~/.claude/projects、~/.codex/sessions、~/.kimi-code/sessions 和 ~/.pi/agent/sessions。在任意一个工具里开个会话，或者用 --demo 参数试用。',
   'sessions.select': '选择一个会话查看详情。',
   'sessions.searchResults': '{n} 条匹配',
 

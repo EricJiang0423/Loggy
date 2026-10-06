@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-Loggy is a local dashboard for your **Claude Code**, **Codex** and **Kimi Code** sessions. It reads the logs these tools already write to disk and shows each session as a bar on a week calendar, with a detail view, a timeline of the conversation, a completion check, and efficiency analytics. You don't need to install hooks, change your config, or put anything in your repositories.
+Loggy is a local dashboard for your **Claude Code**, **Codex**, **Kimi Code** and **Pi** sessions. It reads the logs these tools already write to disk and shows each session as a bar on a week calendar, with a detail view, a timeline of the conversation, a completion check, and efficiency analytics. You don't need to install hooks, change your config, or put anything in your repositories.
 
 ![Week calendar with session detail and timeline](docs/images/calendar-zh.png)
 
@@ -84,11 +84,11 @@ npm ci && npm run build && npm start
 
 ```
 loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
-      [--claude-dir <dir>]... [--codex-dir <dir>]... [--kimi-dir <dir>]...
+      [--claude-dir <dir>]... [--codex-dir <dir>]... [--kimi-dir <dir>]... [--pi-dir <dir>]...
       [--data-dir <dir>] [--ai-model <id>]
 ```
 
-By default Loggy reads `$CLAUDE_CONFIG_DIR` and `~/.claude/projects`, `$CODEX_HOME` or `~/.codex/sessions` plus `archived_sessions`, and `$KIMI_CODE_HOME` or `~/.kimi-code/sessions`. Pass `--claude-dir` / `--codex-dir` / `--kimi-dir` more than once to include several accounts.
+By default Loggy reads `$CLAUDE_CONFIG_DIR` and `~/.claude/projects`, `$CODEX_HOME` or `~/.codex/sessions` plus `archived_sessions`, `$KIMI_CODE_HOME` or `~/.kimi-code/sessions`, and Pi's session directory from `$PI_CODING_AGENT_SESSION_DIR`, `$PI_CODING_AGENT_DIR/sessions` or `~/.pi/agent/sessions`. Pass `--claude-dir` / `--codex-dir` / `--kimi-dir` / `--pi-dir` more than once to include several accounts.
 
 ### AI summaries (optional)
 
@@ -119,7 +119,7 @@ Costs are **API-equivalent estimates** from a built-in price table. Subscription
 ```
 ~/.claude/projects/**.jsonl ─┐                       ┌─ /api/sessions (deltas)
 ~/.codex/sessions/**.jsonl ──┼─> worker threads ───> index (memory + ~/.loggy cache) ─┼─ /api/session (detail)
-fs.watch + polling ──────────┘   parse, resume                                        └─ SSE "update" ─> browser
+~/.pi/agent/sessions/** ─────┘   parse, resume                                        └─ SSE "update" ─> browser
 ```
 
 - **Parsing** runs in worker threads, so the UI stays responsive while thousands of files are read. Codex rollouts can be very large, so each line is classified from its first bytes and only the records Loggy needs are JSON-parsed.
@@ -127,6 +127,7 @@ fs.watch + polling ──────────┘   parse, resume            
 - **Log formats.** The notes in [docs/log-formats.md](docs/log-formats.md) cover several real quirks:
   - Claude Code writes one line per content block with the same `usage`, so Loggy de-duplicates by `message.id`.
   - Codex token counters are cumulative and can go backwards.
+  - Pi writes no git metadata, so commits and the branch are read back from the command and the repository.
   - Subagent logs live in their own files.
 - **Privacy.** The server listens on `127.0.0.1` only, rejects foreign `Host` headers, and makes no network requests except the AI summaries and categories you set up. The Git and Instructions pages run read-only git commands (`log`, `show`, `diff`, `ls-tree`, `cat-file`) and never change your repository.
 

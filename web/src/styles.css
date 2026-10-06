@@ -28,6 +28,7 @@
   --claude: #eb6834;
   --codex: #2a78d6;
   --kimi: #4a3aa7;
+  --pi: #1baf7a;
   --today: rgba(42, 120, 214, 0.06);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.06);
   --ring: rgba(11, 11, 11, 0.1);
@@ -63,6 +64,7 @@
   --claude: #d95926;
   --codex: #3987e5;
   --kimi: #9085e9;
+  --pi: #199e70;
   --today: rgba(57, 135, 229, 0.08);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
   --ring: rgba(255, 255, 255, 0.1);
@@ -524,6 +526,11 @@ label.chk {
 .badge.kimi {
   background: color-mix(in srgb, var(--kimi) 16%, transparent);
   color: color-mix(in srgb, var(--kimi) 70%, var(--ink));
+}
+
+.badge.pi {
+  background: color-mix(in srgb, var(--pi) 16%, transparent);
+  color: color-mix(in srgb, var(--pi) 70%, var(--ink));
 }
 
 .status {

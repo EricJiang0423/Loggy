@@ -14,7 +14,8 @@ import {
 import { claudeRecord, initClaudeState } from './claude.js';
 import { codexFinalizeExtras, codexLine, codexRecord, initCodexState } from './codex.js';
 import { initKimiState, kimiLine } from './kimi.js';
-import { indexIn, scanLines, sniffTypes } from './lines.js';
+import { indexIn, scanLines, sniffString, sniffTypes } from './lines.js';
+import { initPiState, piRecord } from './pi.js';
 
 export interface SummaryResult {
   summary: SessionSummary;
@@ -79,8 +80,40 @@ class ForkFilter {
   }
 }
 
+/** Every Pi entry type Loggy reads; anything else (custom entries, hooks) is skipped unparsed. */
+const PI_TYPES = ['session', 'message', 'session_info', 'model_change', 'compaction', 'usage', 'branch_summary'];
+const ROLE = Buffer.from('"role":"');
+
 function initState(agent: Agent, file: string): AccState {
-  return agent === 'claude' ? initClaudeState(file) : agent === 'kimi' ? initKimiState(file) : initCodexState(file);
+  switch (agent) {
+    case 'claude':
+      return initClaudeState(file);
+    case 'codex':
+      return initCodexState(file);
+    case 'kimi':
+      return initKimiState(file);
+    case 'pi':
+      return initPiState(file);
+  }
+}
+
+/** Pi keeps the whole prompt, tool declarations and skills in system messages, which Loggy never reads. */
+function skipPi(buf: Buffer, start: number, end: number): boolean {
+  const [type] = sniffTypes(buf, start, end, 1);
+  if (type && !PI_TYPES.includes(type)) return true;
+  return type === 'message' && sniffString(buf, start, end, ROLE, 300) === 'system';
+}
+
+function piLine(state: AccState, buf: Buffer, start: number, end: number): void {
+  if (skipPi(buf, start, end)) return;
+  let d;
+  try {
+    d = JSON.parse(buf.toString('utf8', start, end));
+  } catch {
+    state.badLines++;
+    return;
+  }
+  piRecord(state, d);
 }
 
 export function summarizeFile(file: string, agent: Agent, resume?: { state: AccState; offset: number }, opts: { skipFrom?: string[] } = {}): SummaryResult {
@@ -110,9 +143,11 @@ export function summarizeFile(file: string, agent: Agent, resume?: { state: AccS
     });
   } else if (agent === 'kimi') {
     scan = scanLines(file, from, (buf, start, end) => kimiLine(state, buf, start, end));
-  } else {
+  } else if (agent === 'codex') {
     scan = scanLines(file, from, (buf, start, end) => codexLine(state, buf, start, end));
     codexFinalizeExtras(state);
+  } else {
+    scan = scanLines(file, from, (buf, start, end) => piLine(state, buf, start, end));
   }
   const summary = finalize(state);
   return {
@@ -152,6 +187,7 @@ export function detailFile(files: string | string[], agent: Agent): Omit<Session
         const [top, sub] = sniffTypes(buf, start, end, 2);
         if (top === 'world_state' || (top === 'response_item' && (sub === 'reasoning' || sub === 'function_call_output' || sub === 'custom_tool_call_output'))) return;
       }
+      if (agent === 'pi' && skipPi(buf, start, end)) return;
       let d;
       try {
         d = JSON.parse(buf.toString('utf8', start, end));
@@ -163,7 +199,8 @@ export function detailFile(files: string | string[], agent: Agent): Omit<Session
         if (typeof d.uuid === 'string' && !seen.has(d.uuid)) seen.set(d.uuid, Date.parse(d.timestamp) || 0);
         if (fork?.skip(state, d, onFork)) return;
         claudeRecord(state, d, sink, responses);
-      } else codexRecord(state, d, sink, responses);
+      } else if (agent === 'codex') codexRecord(state, d, sink, responses);
+      else piRecord(state, d, sink, responses);
     });
   }
   if (agent === 'codex') codexFinalizeExtras(state);

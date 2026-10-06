@@ -18,9 +18,12 @@ export function series(i: number): string {
   return i < 0 || i >= arr.length ? (isDark() ? OTHER.dark : OTHER.light) : arr[i];
 }
 
-/** Harnesses keep fixed slots: Claude orange, Codex blue, Kimi purple. */
+/** Harnesses keep fixed slots: Claude orange, Codex blue, Pi green, Kimi purple. */
+const AGENT_SLOT: Record<string, number> = { claude: 1, codex: 0, pi: 2, kimi: 6 };
+
 export function agentColor(agent: string): string {
-  return series(agent === 'claude' ? 1 : agent === 'kimi' ? 6 : 0);
+  const slot = AGENT_SLOT[agent];
+  return series(slot === undefined ? -1 : slot);
 }
 
 export function outcomeColor(o: Outcome | LiveStatus): string {

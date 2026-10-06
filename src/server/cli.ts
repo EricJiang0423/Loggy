@@ -1,11 +1,20 @@
 // `loggy` command line entry.
 
-import { DEFAULT_AI_MODEL, DEFAULT_PORT, defaultClaudeDirs, defaultCodexDirs, defaultKimiDirs, defaultDataDir, type Config } from './config.js';
+import {
+  DEFAULT_AI_MODEL,
+  DEFAULT_PORT,
+  defaultClaudeDirs,
+  defaultCodexDirs,
+  defaultDataDir,
+  defaultKimiDirs,
+  defaultPiDirs,
+  type Config,
+} from './config.js';
 
 declare const __LOGGY_VERSION__: string;
 const VERSION = typeof __LOGGY_VERSION__ === 'string' ? __LOGGY_VERSION__ : '0.0.0-dev';
 
-const HELP = `Loggy ${VERSION} - local dashboard for Claude Code and Codex sessions
+const HELP = `Loggy ${VERSION} - local dashboard for Claude Code, Codex and Pi sessions
 
 Usage
   loggy [options]            start the dashboard (default http://127.0.0.1:${DEFAULT_PORT})
@@ -19,6 +28,8 @@ Options
   --codex-dir <dir>          Codex home containing sessions/ (repeatable; default $CODEX_HOME or ~/.codex)
   --kimi-dir <dir>           Kimi Code home containing sessions/ (repeatable;
                              default $KIMI_CODE_HOME or ~/.kimi-code)
+  --pi-dir <dir>             Pi session dir (repeatable; default $PI_CODING_AGENT_SESSION_DIR,
+                             $PI_CODING_AGENT_DIR/sessions, or ~/.pi/agent/sessions)
   --data-dir <dir>           where Loggy keeps its cache (default $LOGGY_HOME or ~/.loggy)
   --ai-model <id>            model for optional AI summaries (default ${DEFAULT_AI_MODEL})
   --rebuild                  ignore the cache and parse every log again
@@ -40,6 +51,7 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
     claudeDirs: [],
     codexDirs: [],
     kimiDirs: [],
+    piDirs: [],
     dataDir: defaultDataDir(),
     aiModel: process.env.LOGGY_AI_MODEL ?? DEFAULT_AI_MODEL,
     version: VERSION,
@@ -71,6 +83,8 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
         break;
       case '--kimi-dir':
         cfg.kimiDirs!.push(next());
+      case '--pi-dir':
+        cfg.piDirs.push(next());
         break;
       case '--data-dir':
         cfg.dataDir = next();
@@ -100,6 +114,7 @@ function parseArgs(argv: string[]): Config & { help: boolean; showVersion: boole
   if (!cfg.claudeDirs.length) cfg.claudeDirs = defaultClaudeDirs();
   if (!cfg.codexDirs.length) cfg.codexDirs = defaultCodexDirs();
   if (!cfg.kimiDirs?.length) cfg.kimiDirs = defaultKimiDirs();
+  if (!cfg.piDirs.length) cfg.piDirs = defaultPiDirs();
   return cfg;
 }
 

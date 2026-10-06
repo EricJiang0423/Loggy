@@ -15,7 +15,7 @@ import type {
 } from '../shared/types.js';
 import { contextWindowFor, costOf, type UsageForCost } from './pricing.js';
 
-export const PARSER_VERSION = 10;
+export const PARSER_VERSION = 11;
 const BUCKET_MS = 600_000;
 const WAIT_CAP_MS = 30 * 60_000;
 const IDLE_SPLIT_MS = 30 * 60_000;

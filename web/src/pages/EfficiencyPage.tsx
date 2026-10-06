@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import type { SessionSummary } from '../../../src/shared/types';
+import { AGENTS, type SessionSummary } from '../../../src/shared/types';
 import { agentColor, series as seriesColor } from '../colors';
 import { BarChart, DataTable, Heatmap, Legend, type Series } from '../components/Charts';
 import { agentKey, HarnessFilter, KNOBS, knobKey, Seg, StatusBadge, usePersisted, useThemeVersion } from '../components/common';
@@ -10,7 +10,6 @@ import { useStore } from '../store';
 type Range = '7' | '30' | '90' | 'all';
 const BUCKET = 600_000;
 const DAY = 86400_000;
-const AGENT_ORDER = ['claude', 'codex', 'kimi'];
 
 interface Agg {
   cost: number;
@@ -60,7 +59,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [range, setRange] = useState<Range>('30');
   const [harnessList, setHarnessList] = usePersisted<string>('loggy.harnesses', '');
   const harnesses = useMemo(() => harnessList.split(',').filter(Boolean), [harnessList]);
-  const present = useMemo(() => [...new Set(list.map((s) => s.agent as string))].sort((a, b) => AGENT_ORDER.indexOf(a) - AGENT_ORDER.indexOf(b)), [list]);
+  const present: string[] = useMemo(() => AGENTS.filter((a) => list.some((s) => s.agent === a)), [list]);
   const shown = present.filter((a) => !harnesses.length || harnesses.includes(a));
   const [project, setProject] = useState('');
   const [tables, setTables] = useState<Record<string, boolean>>({});
@@ -88,7 +87,7 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
       starts.push(d);
       labels.push(shortDay(d, lang));
     }
-    const cost: Record<string, number[]> = Object.fromEntries(AGENT_ORDER.map((a) => [a, Array(days).fill(0)]));
+    const cost: Record<string, number[]> = Object.fromEntries(AGENTS.map((a) => [a, Array(days).fill(0)]));
     const active = Array(days).fill(0);
     const wait = Array(days).fill(0);
     const peakMaps: Map<number, number>[] = Array.from({ length: days }, () => new Map());

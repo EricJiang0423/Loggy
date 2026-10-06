@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-Loggy 是 **Claude Code**、**Codex** 和 **Kimi Code** 会话的本地看板。它直接读取这些工具本来就写在本机的日志，把每个会话画成周日历上的一根竖条，并提供会话详情、对话时间线、完成判定和效率分析。不用装 hook，不用改配置，也不会往你的仓库里写任何东西。
+Loggy 是 **Claude Code**、**Codex**、**Kimi Code** 和 **Pi** 会话的本地看板。它直接读取这些工具本来就写在本机的日志，把每个会话画成周日历上的一根竖条，并提供会话详情、对话时间线、完成判定和效率分析。不用装 hook，不用改配置，也不会往你的仓库里写任何东西。
 
 ![周日历、会话详情和时间线](docs/images/calendar-zh.png)
 
@@ -95,7 +95,7 @@ npm ci && npm run build && npm start
 
 ```
 loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
-      [--claude-dir <目录>]... [--codex-dir <目录>]... [--kimi-dir <目录>]...
+      [--claude-dir <目录>]... [--codex-dir <目录>]... [--kimi-dir <目录>]... [--pi-dir <目录>]...
       [--data-dir <目录>] [--ai-model <模型>]
 ```
 
@@ -103,8 +103,9 @@ loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
 - Claude Code：`$CLAUDE_CONFIG_DIR` 和 `~/.claude/projects`
 - Codex：`$CODEX_HOME`（或 `~/.codex`）下的 `sessions` 和 `archived_sessions`
 - Kimi Code：`$KIMI_CODE_HOME`（或 `~/.kimi-code`）下的 `sessions`
+- Pi：`$PI_CODING_AGENT_SESSION_DIR`、`$PI_CODING_AGENT_DIR/sessions` 或 `~/.pi/agent/sessions`
 
-有多个账号的话，可以多次传 `--claude-dir` / `--codex-dir` / `--kimi-dir`。
+有多个账号的话，可以多次传 `--claude-dir` / `--codex-dir` / `--kimi-dir` / `--pi-dir`。
 
 ### AI 概要（可选）
 
@@ -134,9 +135,10 @@ loggy [--port 4317] [--host 127.0.0.1] [--no-open] [--demo] [--rebuild]
 
 - **多线程解析**：日志在 worker 线程里解析，读几千个文件时界面也不卡。Codex 的 rollout 文件可能很大，所以每行先看开头几个字节判断类型，只有需要的记录才做 JSON 解析。
 - **增量更新**：文件变长时，从上次读到的位置接着解析，并恢复当时的解析状态；没变的文件直接用缓存。文件监听（fs.watch）加轮询，更新通过 SSE 推送到浏览器。
-- **日志格式**：两种日志的格式和坑写在 [docs/log-formats.md](docs/log-formats.md)，比如：
+- **日志格式**：三种日志的格式和坑写在 [docs/log-formats.md](docs/log-formats.md)，比如：
   - Claude Code 会把同一条回复按内容块拆成多行，每行都带同一份 `usage`，所以要按 `message.id` 去重；
   - Codex 的 token 是累计值，而且偶尔会变小；
+  - Pi 不写 git 信息，提交和分支要从命令和仓库里推断；
   - 子代理的日志在单独的文件里。
 - **隐私**：只监听 `127.0.0.1`，拒绝其他 `Host` 头。除了你配置的 AI 概要和分类，不发任何网络请求。Git 页和指令页只运行只读的 git 命令（`log`、`show`、`diff`、`ls-tree`、`cat-file`），不会改动你的仓库。
 

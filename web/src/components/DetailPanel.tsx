@@ -133,8 +133,8 @@ function Header({
   const { t, lang } = useI18n();
   const now = useStore((x) => x.now);
   const tokens = s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite;
-  const tool = s.agent === 'claude' ? 'claude --resume' : s.agent === 'kimi' ? 'kimi --resume' : 'codex resume';
-  const resume = s.isSubagent ? undefined : `cd ${quote(s.cwd)} && ${tool} ${s.sessionId}`;
+  const tool = s.agent === 'claude' ? 'claude --resume ' + s.sessionId : s.agent === 'kimi' ? 'kimi --resume ' + s.sessionId : s.agent === 'pi' ? 'pi --continue' : 'codex resume ' + s.sessionId;
+  const resume = s.isSubagent ? undefined : `cd ${quote(s.cwd)} && ${tool}`;
   const list = useStore((x) => x.list);
   const next = useMemo(() => list.filter((x) => x.continues === s.id), [list, s.id]);
   const split = splitReasons(s, detail).map(([k, n]) => t(k, { n })).join(' · ');
@@ -233,7 +233,7 @@ function Header({
 function HandoffBar({ s, detail }: { s: SessionSummary; detail: SessionDetail }) {
   const { t, lang } = useI18n();
   const aiOn = useStore((x) => x.server?.aiAvailable);
-  const [to, setTo] = usePersisted<'claude' | 'codex'>('loggy.handoffTo', s.agent === 'kimi' ? 'claude' : s.agent);
+  const [to, setTo] = usePersisted<'claude' | 'codex'>('loggy.handoffTo', s.agent === 'codex' ? 'codex' : 'claude');
   const [target, setTarget] = usePersisted<'cmux' | 'terminal' | 'app' | 'copy'>('loggy.handoffTarget', 'cmux');
   const [msg, setMsg] = useState<{ text: string; err?: boolean; manual?: string } | undefined>();
   useEffect(() => setMsg(undefined), [s.id]);
