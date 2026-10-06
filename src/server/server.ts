@@ -12,6 +12,7 @@ import type { AiSummary, SessionMark } from '../shared/types.js';
 import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
 import { gitLines, gitLog, gitShow, linkCommits } from './git.js';
+import { findGitProjects, type GitProject } from './gitprojects.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
@@ -61,12 +62,12 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
   });
 
   /** Projects whose folder is a git repository. */
-  function gitProjects(): { path: string; name: string }[] {
-    const out = new Map<string, string>();
-    for (const s of indexer.summaries()) {
-      if (s.projectPath && !out.has(s.projectPath) && fs.existsSync(path.join(s.projectPath, '.git'))) out.set(s.projectPath, s.project);
-    }
-    return [...out].map(([p, name]) => ({ path: p, name })).sort((a, b) => a.name.localeCompare(b.name));
+  // Looking for clones walks a few folders, so the list is kept for a minute.
+  let gitCache: { at: number; list: GitProject[] } | undefined;
+  function gitProjects(): GitProject[] {
+    if (gitCache && Date.now() - gitCache.at < 60_000) return gitCache.list;
+    gitCache = { at: Date.now(), list: findGitProjects(indexer.summaries(), (cwd) => indexer.place(cwd)) };
+    return gitCache.list;
   }
 
   function currentAi() {
@@ -189,17 +190,18 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         return sendJson(req, res, { mark: indexer.marks.get(id) ?? null });
       }
       case '/api/git/projects':
-        return sendJson(req, res, { projects: gitProjects() });
+        return sendJson(req, res, { projects: gitProjects().map(({ path: p, name }) => ({ path: p, name })) });
       case '/api/git/log':
       case '/api/git/show':
       case '/api/git/lines': {
         const project = url.searchParams.get('project') ?? '';
-        if (!gitProjects().some((p) => p.path === project)) return sendJson(req, res, { error: 'unknown project' }, 400);
+        const repo = gitProjects().find((p) => p.path === project);
+        if (!repo) return sendJson(req, res, { error: 'unknown project' }, 400);
         try {
           if (p === '/api/git/show') return sendJson(req, res, await gitShow(project, url.searchParams.get('sha') ?? ''));
           if (p === '/api/git/lines') return sendJson(req, res, await gitLines(project, cfg.dataDir));
-          const commits = await gitLog(project, { q: url.searchParams.get('q') || undefined, path: url.searchParams.get('path') || undefined });
-          const owner = linkCommits(commits, indexer.summaries(), project);
+          const commits = await gitLog(project, { q: url.searchParams.get('q') || undefined, path: url.searchParams.get('path') || undefined, cacheDir: path.join(cfg.dataDir, 'cache', 'git') });
+          const owner = linkCommits(commits, indexer.summaries(), project, repo.groups);
           return sendJson(req, res, { commits: commits.map((c) => ({ ...c, session: owner.get(c.sha) })) });
         } catch (err) {
           return sendJson(req, res, { error: (err as Error).message }, 500);

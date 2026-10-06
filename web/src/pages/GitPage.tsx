@@ -210,6 +210,7 @@ export function GitPage({ onOpen }: { onOpen: (sessionId: string) => void }) {
                   </div>
                 );
               })}
+              {!commits && !err && <div className="empty-state">{t('git.loading')}</div>}
               {commits && !commits.length && <div className="empty-state">{t('git.none')}</div>}
             </div>
           </div>

@@ -30,7 +30,7 @@ Loggy is a local dashboard for your **Claude Code**, **Codex** and **Kimi Code**
   - a "worth a look" list of sessions that burned money without output, ran close to the context limit, looped on tools, or ended with uncommitted edits
 - **Projects.** Sessions are grouped by git remote, git root or working folder (Settings). The default, smart grouping, treats Claude and Codex alike: by remote when it is known (from git, the Codex log or a Claude PR link), else by folder. A thread you put in a Codex app project but ran outside its folders counts as in the project's folder, and the dated folders of Codex chats without a project (`Codex/YYYY-MM-DD/…`) form one group. Sessions whose folder has since been deleted, or whose origin changed, are placed too. Codex auto-review (guardian) threads are subagents of the thread they review. Codex sessions are titled with the thread name from the Codex app (the latest rename).
 - **Handoffs.** "Copy handoff" in the session detail writes a prompt to continue in a new conversation (summary, decisions, unverified items, next steps, commits, changed files, the log path), from Claude to Codex or back. When a new conversation's first message names exactly one other session (a handoff, a `codex://threads/…` link, a log path), Loggy links the two: "Handed off from / Continued in". The detail suggests splitting when context compacted twice or more, you resumed after a night, or one conversation held several tasks.
-- **Git.** The commit graph of all local branches, each commit colored by the session that made it. Open a commit for its changed files and diff, and for what each turn of that session committed. Search by message, filter by path, and see lines of code per folder over time.
+- **Git.** Finds each project's local repository on its own (also for projects that only named the repo in a PR link while their sessions ran in a parent folder). The commit graph of all local branches, each commit colored by the session that made it. Open a commit for its changed files and diff, and for what each turn of that session committed. Search by message, filter by path, and see lines of code per folder over time.
 - **Instructions & Memory.** The git history of `CLAUDE.md` / `AGENTS.md` in each project, with diffs and the number of sessions that ran under each version.
 - **Chinese and English UI**, light and dark themes, keyboard navigation (↑/↓ or j/k in the list).
 - **Optional AI summaries and smart categories.** Every summary has the same layout: title, what happened, decisions, not verified, concerns, open questions, next steps, request status, work type and whether the work is complete. Make them by hand, or turn on automatic summaries: every session of the last 7 days gets one, a session that changes is updated once a day, and the sessions are grouped into a few categories. Works with the Anthropic API or a model your company runs. Summaries and categories are written in the language chosen in Settings; an answer in another language is asked for again and never saved.
@@ -46,6 +46,10 @@ Loggy is a local dashboard for your **Claude Code**, **Codex** and **Kimi Code**
 Git page: commit graph, commits per turn and the diff:
 
 ![Git page with commit graph, commits per turn and diff](docs/images/git-zh.png)
+
+Harness settings on the efficiency page (share of turns per setting, and switches):
+
+![Efficiency page: permission mode, plan mode, effort and model per harness](docs/images/harness-zh.png)
 
 Project grouping in Settings:
 
@@ -125,7 +129,7 @@ fs.watch + polling ──────────┘   parse, resume            
   - Subagent logs live in their own files.
 - **Privacy.** The server listens on `127.0.0.1` only, rejects foreign `Host` headers, and makes no network requests except the AI summaries and categories you set up. The Git and Instructions pages run read-only git commands (`log`, `show`, `diff`, `ls-tree`, `cat-file`) and never change your repository.
 
-Measured on a Mac with 1,136 synthetic sessions (524 MB): a cold index took 2.2 s, a warm start 0.2 s, the session list (2 MB) about 0.4 s, a new log line showed up in the UI 0.1 s after it was written, and a session detail loaded in 60–90 ms. Run `npm run perf` to reproduce.
+Measured on a Mac with 1,033 synthetic sessions (524 MB): a cold index took 2.2 s, a warm start 0.2 s, the session list (2 MB) about 0.4 s, a new log line showed up in the UI 0.1 s after it was written, and a session detail loaded in 0.1–0.2 s (the largest has over 1,200 tool calls). Run `npm run perf` to reproduce.
 
 ## Development
 

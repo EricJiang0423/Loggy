@@ -79,3 +79,13 @@ test('a folder whose origin changed keeps one project: the latest recorded remot
   const p = run(list, 'smart');
   expect(new Set([p.x1, p.x2, p.c1])).toEqual(new Set(['qlib']));
 });
+
+test('a plain folder that holds several projects does not merge them: each session keeps the repo it recorded', () => {
+  const list = [
+    S('p1', '/notes', { repo: 'https://github.com/team/orion', start: 1 }),
+    S('a1', '/notes', { repo: 'https://github.com/team/vega', start: 2 }),
+  ];
+  const p = run(list, 'smart');
+  expect(p.p1).not.toBe(p.a1);
+  expect(p.p1.toLowerCase()).toContain('orion');
+});

@@ -7,11 +7,19 @@
 - **Kimi Code support.** Loggy reads the event logs in `~/.kimi-code/sessions` (or `$KIMI_CODE_HOME`, or `--kimi-dir`): sessions and subagents, tokens and equivalent cost (context windows from Kimi's `config.toml`), edited files, commits, the timeline, questions, interrupts and compactions. A session with an open approval or question shows *needs input*. Titles follow renames in Kimi Code, and the detail view offers `kimi --resume`.
 - **Harness settings.** Every turn records the settings it ran with: permission mode, reasoning effort, model, plan mode, sandbox (Codex), multi-agent (Codex), swarm mode and goal (Kimi Code), fast mode (Claude Code) and where it was started. The session detail shows them with a log of switches, the efficiency page sums them up per harness (share of turns, number of switches), and the session list can be filtered by any setting.
 - **Choose your harnesses.** The sessions and efficiency pages take any combination of Claude Code, Codex and Kimi Code. Settings → Data sources can turn a harness off; it is then not indexed or counted anywhere.
+- **Git page finds repositories on its own.** Besides projects whose folder is a repository, it lists the local clone of a project grouped by its remote (for example sessions started in a parent folder that only named the repo in a PR link): Loggy looks for a repository with that remote in and up to two levels below the folders the sessions ran in. Commits are matched to every session of the project.
+- **Handoffs between conversations.** *Copy handoff* writes a prompt to continue a session in a new conversation in Claude Code or Codex. A first prompt that names exactly one other session links the two, and the detail suggests splitting after two compactions, an overnight resume or several tasks.
 
 ### Changed
 
 - **Summaries in the chosen language.** The language rule is part of the system prompt and repeated after the transcript; an answer in another language is asked for once more and never saved if it is still wrong. Summaries saved earlier in the wrong language are redone, and smart category names are checked the same way. A session whose summary failed is retried after a day instead of every hour.
 - The comparison on the efficiency page covers every harness.
+- Smart grouping places Codex threads by folder like Claude sessions: a thread run outside its Codex app project's folders counts as in the first one, and the dated folders of project-less chats form one group. Codex auto-approval review threads are subagents of the thread they review.
+
+### Fixed
+
+- Sessions started in a plain folder that holds several repositories (for example a work folder with two project clones below it) keep the repository they recorded instead of all joining the last one.
+- The Git page no longer fails on a repository with a broken branch name (such as an iCloud conflict copy `main 2`) or with objects that are not on disk (partial clones, files still in iCloud): it never fetches from the network, shows the list without line counts when they cannot be read in 15 s, and caches the list until a branch moves.
 
 ## 0.6.1 - 2026-10-07
 

@@ -98,6 +98,8 @@ export interface AccState {
   /** Current harness settings, and how often each one changed. */
   knobCur?: Record<string, string>;
   knobSw?: Record<string, number>;
+  /** Modes switched on between turns: they count as switched on in the next turn. */
+  knobPending?: string[];
   /** When `git commit` commands ran: [start, end] ms (a quiet commit prints no id). */
   commitRuns?: [number, number][];
   /** Agent-specific scratch space (must stay JSON-serializable and bounded). */
@@ -195,6 +197,7 @@ export function beginTurn(s: AccState, ts: number, prompt: string, isInput = tru
   }
   const turn: TurnAcc = {
     ...(s.knobCur && Object.keys(s.knobCur).length ? { k: { ...s.knobCur } } : {}),
+    ...(s.knobPending?.length ? { kOn: s.knobPending } : {}),
     start: ts,
     end: ts,
     prompt: prompt.slice(0, 300),
@@ -208,6 +211,7 @@ export function beginTurn(s: AccState, ts: number, prompt: string, isInput = tru
     commits: 0,
   };
   s.turns.push(turn);
+  s.knobPending = undefined;
   if (ts && isInput) s.inputTimes.push(ts);
   if (!s.firstPrompt && prompt) s.firstPrompt = prompt.slice(0, 300);
   s.awaitingReply = false;
@@ -233,7 +237,11 @@ export function setKnob(s: AccState, knob: string, value: unknown): void {
   }
   cur[knob] = value;
   const t = currentTurn(s);
-  if (!t || t.ended) return;
+  if (!t || t.ended) {
+    if (value === 'on') s.knobPending = [...(s.knobPending ?? []).filter((x) => x !== knob), knob];
+    else if (value === 'off') s.knobPending = s.knobPending?.filter((x) => x !== knob);
+    return;
+  }
   // A mode switched on and off again within one turn still counts as used in that turn.
   if (value === 'on') (t.kOn ??= []).push(knob);
   else if (value === 'off' && t.kOn?.includes(knob)) return;

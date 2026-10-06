@@ -86,7 +86,8 @@ export function groupProjects(
     const cur = latest.get(s.cwd);
     if (repo && s.cwd && !(cur && cur.at > s.start)) latest.set(s.cwd, { at: s.start, repo });
   }
-  const repoOf = (s: SessionSummary, p: Place) => p.remote ?? (s.repo ? latest.get(s.cwd)?.repo : undefined);
+  // An existing plain folder (e.g. one holding several projects) is not one repo: its sessions keep their own.
+  const repoOf = (s: SessionSummary, p: Place) => p.remote ?? (!s.repo ? undefined : p.isGit || !exists(s.cwd) ? latest.get(s.cwd)?.repo : normalizeRemote(s.repo));
 
   // A git root without an origin remote takes the repo that sessions inside it recorded.
   const repoByRoot = new Map<string, string>();

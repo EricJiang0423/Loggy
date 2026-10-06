@@ -72,6 +72,15 @@ test('a Kimi Code session: turns, inputs, tokens, edits, commits and harness set
   expect(d.timeline.filter((i) => i.kind === 'user').map((i) => i.text)).toEqual(['add a page']);
   expect(d.timeline.some((i) => i.kind === 'system' && i.text.startsWith('[cron]'))).toBe(true);
   expect(d.files).toEqual([{ path: '/w/app/a.ts', added: 2, removed: 1, edits: 1 }]);
+
+  // Plan mode switched on before the input and off during the turn: the turn used it.
+  const early = write('main', [
+    { type: 'plan_mode.enter', agentId: 'main', id: 'p', time: at(0) },
+    { type: 'turn.prompt', agentId: 'main', input: [{ type: 'text', text: 'plan it' }], origin: { kind: 'user' }, turnId: 0, time: at(1) },
+    { type: 'plan_mode.exit', agentId: 'main', time: at(5) },
+    { type: 'turn.ended', agentId: 'main', turnId: 0, reason: 'completed', durationMs: 4000, time: at(6) },
+  ]);
+  expect(summarizeFile(early, 'kimi').summary.knobs?.plan).toEqual({ on: 1 });
 });
 
 test('an open approval request means the session waits for you; subagents point at their parent', () => {

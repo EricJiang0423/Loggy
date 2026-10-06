@@ -6,9 +6,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ensureDir } from './config.js';
 
-function git(cwd: string, args: string[], maxBuffer = 64 * 1024 * 1024): Promise<string> {
+function git(cwd: string, args: string[], maxBuffer = 64 * 1024 * 1024, timeout = 60_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, maxBuffer, timeout: 60_000, windowsHide: true }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    // Never reach the network: a partial clone would try to fetch missing objects.
+    execFile('git', args, { cwd, maxBuffer, timeout, windowsHide: true, env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } }, (err, stdout, stderr) => {
+      if (!err) return resolve(stdout);
+      if (err.killed) return reject(new Error('Timed out reading the repository (its files may still be downloading, e.g. from iCloud).'));
+      reject(new Error(String(stderr || err.message).trim().split('\n').filter((l) => !l.startsWith('warning:')).slice(0, 2).join(' ') || 'git failed'));
+    });
   });
 }
 
@@ -28,12 +33,44 @@ export interface GitCommit {
 const SHA = /^[0-9a-f]{4,40}$/;
 
 /** Commits of all local branches, children before parents. `q` searches messages, `path` keeps commits that touched it. */
-export async function gitLog(root: string, o: { q?: string; path?: string; limit?: number }): Promise<GitCommit[]> {
-  const args = ['log', '--branches', 'HEAD', '--topo-order', `--max-count=${Math.min(o.limit ?? 300, 2000)}`, '--format=%x1e%H%x1f%an%x1f%aI%x1f%P%x1f%D%x1f%s', '--numstat', '--no-color'];
-  if (o.q) args.push('-i', `--grep=${o.q}`);
-  args.push('--');
-  if (o.path) args.push(o.path);
-  const out = await git(root, args);
+export async function gitLog(root: string, o: { q?: string; path?: string; limit?: number; cacheDir?: string }): Promise<GitCommit[]> {
+  // Branches listed one by one: a broken ref name (e.g. a sync conflict copy "main 2") makes --branches fail.
+  const refs = await git(root, ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads']).catch(() => '');
+  const head = await git(root, ['rev-parse', 'HEAD']).catch(() => '');
+  const branches = refs.split('\n').map((l) => l.split(' ')[0]).filter((b) => b && !/\s/.test(b) && refs.includes(`${b} `));
+  // The same branch tips give the same list; a repo whose files sit in iCloud is slow to read only once.
+  const file = o.cacheDir
+    ? path.join(ensureDir(o.cacheDir), `log-${crypto.createHash('sha1').update(JSON.stringify([root, o.q, o.path, o.limit, refs, head])).digest('hex').slice(0, 20)}.json`)
+    : undefined;
+  if (file) {
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8')) as GitCommit[];
+    } catch {
+      // not cached yet
+    }
+  }
+  const commits = await readLog(root, o, branches);
+  if (file) {
+    try {
+      fs.writeFileSync(file, JSON.stringify(commits));
+    } catch {
+      // the cache is optional
+    }
+  }
+  return commits;
+}
+
+async function readLog(root: string, o: { q?: string; path?: string; limit?: number }, branches: string[]): Promise<GitCommit[]> {
+  const args = (refs: string[], numstat: boolean) => {
+    const a = ['log', ...refs, '--topo-order', `--max-count=${Math.min(o.limit ?? 300, 2000)}`, '--format=%x1e%H%x1f%an%x1f%aI%x1f%P%x1f%D%x1f%s', ...(numstat ? ['--numstat'] : []), '--no-color'];
+    if (o.q) a.push('-i', `--grep=${o.q}`);
+    a.push('--');
+    if (o.path) a.push(o.path);
+    return a;
+  };
+  // Line counts need every file's contents; without them (objects missing) the list still shows.
+  // ponytail: 15 s for line counts, which read every changed file; files still in iCloud can take minutes.
+  const out = await git(root, args([...branches, 'HEAD'], true), undefined, 15_000).catch(() => git(root, args(['HEAD'], false)));
   const commits: GitCommit[] = [];
   for (const chunk of out.split('\x1e')) {
     if (!chunk.trim()) continue;
@@ -184,12 +221,16 @@ const RUN_SLACK_MS = 5_000; // commit dates have one-second precision
  */
 export function linkCommits(
   commits: { sha: string; date: string }[],
-  sessions: { id: string; cwd: string; commitShas?: string[]; commitRuns?: [number, number][] }[],
+  sessions: { id: string; cwd: string; projectPath?: string; commitShas?: string[]; commitRuns?: [number, number][] }[],
   root: string,
+  /** Projects whose sessions work in this repository even from another folder. */
+  groups: string[] = [],
 ): Map<string, string> {
   const bySha = new Map<string, string>();
   for (const s of sessions) for (const sha of s.commitShas ?? []) bySha.set(sha.slice(0, 7), s.id);
-  const inRepo = sessions.filter((s) => s.commitRuns?.length && (s.cwd === root || s.cwd.startsWith(root.endsWith(path.sep) ? root : root + path.sep)));
+  const inRepo = sessions.filter(
+    (s) => s.commitRuns?.length && (s.cwd === root || s.cwd.startsWith(root.endsWith(path.sep) ? root : root + path.sep) || (!!s.projectPath && groups.includes(s.projectPath))),
+  );
   const out = new Map<string, string>();
   for (const c of commits) {
     const hit = bySha.get(c.sha.slice(0, 7));

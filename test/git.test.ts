@@ -121,3 +121,23 @@ test('commits find their session by printed id, else by when a git commit ran in
   expect(owner.get('bbbbbbb2222')).toBe('claude:quiet');
   expect(owner.has('ccccccc3333')).toBe(false);
 });
+
+test('a broken branch name (a sync conflict copy) does not hide the history', async () => {
+  const head = git(['rev-parse', 'HEAD']).trim();
+  fs.writeFileSync(path.join(repo, '.git', 'refs', 'heads', 'main 2'), `${head}\n`);
+  const all = await gitLog(repo, {});
+  expect(all.length).toBeGreaterThan(0);
+  fs.rmSync(path.join(repo, '.git', 'refs', 'heads', 'main 2'));
+});
+
+test('the commit list is cached until a branch moves', async () => {
+  const cacheDir = path.join(data, 'gitcache');
+  const first = await gitLog(repo, { cacheDir });
+  expect(fs.readdirSync(cacheDir)).toHaveLength(1);
+  expect(await gitLog(repo, { cacheDir })).toEqual(first);
+  write('later.txt', 'x\n');
+  git(['add', '.']);
+  git(['commit', '-q', '-m', 'Later'], '2026-10-04T10:00:00Z');
+  const next = await gitLog(repo, { cacheDir });
+  expect(next.length).toBe(first.length + 1);
+});
