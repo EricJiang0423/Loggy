@@ -5,6 +5,7 @@ import { GitPage } from './pages/GitPage';
 import { InstructionsPage } from './pages/InstructionsPage';
 import { SessionsPage } from './pages/SessionsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { notifySplits } from './split';
 import { startSync, useStore } from './store';
 
 export type Page = 'sessions' | 'efficiency' | 'instructions' | 'git' | 'settings';
@@ -45,6 +46,8 @@ export function App() {
   const [query, setQuery] = useState('');
 
   useEffect(() => startSync(), []);
+  const list = useStore((x) => x.list);
+  useEffect(() => notifySplits(list, (s) => translate(lang, 'split.notify', { title: s.title.slice(0, 60) }), translate(lang, 'split.notifyBody')), [list, lang]);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());

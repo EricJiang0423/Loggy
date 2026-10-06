@@ -305,6 +305,12 @@ function toolResults(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: Detail
   if (bed && Array.isArray(bed.files)) {
     for (const entry of bed.files) {
       if (!entry || typeof entry !== 'object') continue;
+      // Current logs: { filePath, hunks, created?, deleted? }; older ones: { [path]: hunks }.
+      if (typeof entry.filePath === 'string') {
+        const [a, rm] = hunkLines(entry.hunks);
+        addFileChange(s, entry.filePath, a, rm, ts, sink);
+        continue;
+      }
       for (const [p, hunks] of Object.entries(entry)) {
         const [a, rm] = hunkLines(hunks);
         addFileChange(s, p, a, rm, ts, sink);

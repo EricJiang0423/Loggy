@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from '../../../src/shared/types';
 import { compact, dateTime, displayTitle, duration, money } from '../format';
 import { useI18n, type Key } from '../i18n';
+import { shouldSplitNow } from '../split';
 import { AgentBadge, Star, StatusBadge } from './common';
 
 const ROW = 70;
@@ -75,6 +76,7 @@ export function SessionList({ sessions, selected, onSelect }: { sessions: Sessio
         <div className="meta">
           <AgentBadge agent={s.agent} />
           {s.isSubagent && <span className="badge">sub</span>}
+          {shouldSplitNow(s) && <span className="badge refused">{t('split.badge')}</span>}
           {s.mark?.label && <span className="badge">{t(`mark.${s.mark.label}` as Key)}</span>}
           <span>{s.project}</span>
           <span className="num">{dateTime(s.start, lang)}</span>

@@ -13,6 +13,7 @@ import type { Config } from './config.js';
 import type { Indexer } from './indexer.js';
 import { gitLines, gitLog, gitShow, linkCommits } from './git.js';
 import { findGitProjects, type GitProject } from './gitprojects.js';
+import { handOff, TARGETS, type Target } from './launch.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
@@ -188,6 +189,19 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         writeMarks(cfg.dataDir, indexer.marks);
         indexer.touch(id);
         return sendJson(req, res, { mark: indexer.marks.get(id) ?? null });
+      }
+      case '/api/handoff': {
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        const body = await readJson(req);
+        const from = indexer.summaries().find((s) => s.id === body?.id && !s.isSubagent);
+        if (!from) return sendJson(req, res, { error: 'unknown session' }, 400);
+        if (body!.to !== 'claude' && body!.to !== 'codex') return sendJson(req, res, { error: 'unknown agent' }, 400);
+        if (!TARGETS.includes(body!.target as Target)) return sendJson(req, res, { error: 'unknown target' }, 400);
+        try {
+          return sendJson(req, res, await handOff(cfg.dataDir, from, body!.to, body!.target as Target, String(body!.text ?? '').slice(0, 100_000), String(body!.lang ?? 'en')));
+        } catch (err) {
+          return sendJson(req, res, { error: (err as Error).message }, 500);
+        }
       }
       case '/api/git/projects':
         return sendJson(req, res, { projects: gitProjects().map(({ path: p, name }) => ({ path: p, name })) });

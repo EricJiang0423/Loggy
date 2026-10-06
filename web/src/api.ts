@@ -66,6 +66,8 @@ export const api = {
   state: () => get<ServerState>('api/state'),
   sessions: (since: number) => get<{ gen: number; full: boolean; sessions: SessionSummary[]; removed: string[] }>(`api/sessions?since=${since}`),
   session: (id: string, signal?: AbortSignal) => get<SessionDetail>(`api/session?id=${encodeURIComponent(id)}`, signal),
+  handoff: (body: { id: string; to: 'claude' | 'codex'; target: 'cmux' | 'terminal' | 'app' | 'copy'; text: string; lang: string }) =>
+    postJson<{ file: string; cwd: string; command: string; note?: 'cmuxBlocked' }>('api/handoff', body),
   mark: (id: string, patch: { star?: boolean; label?: MarkLabel | null; note?: string }) => postJson<{ mark: SessionMark | null }>('api/mark', { id, ...patch }),
   related: (id: string) => get<{ related: { id: string; shared: number }[] }>(`api/related?id=${encodeURIComponent(id)}`),
   search: (q: string, signal?: AbortSignal) => get<{ ids: string[] }>(`api/search?q=${encodeURIComponent(q)}`, signal),

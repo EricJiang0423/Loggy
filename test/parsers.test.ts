@@ -221,6 +221,20 @@ describe('claude: real-log regressions', () => {
     expect(summary.tokens.output).toBe(1000);
   });
 
+  test('files a shell command edited are read by filePath, not taken from the field names', () => {
+    const hunk = { oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: ['-a', '+b', '+c'] };
+    const f = writeLines('bash-edit.jsonl', [
+      human('edit with sed'),
+      reply('m1', [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: "sed -i '' s/a/b/ x.ts" } }], 'tool_use'),
+      toolResult('t1', { stdout: '', bashEditDiff: { files: [{ filePath: '/w/p/x.ts', hunks: [hunk], created: false }] } }),
+      reply('m2', [{ type: 'text', text: 'Done.' }], 'end_turn'),
+    ]);
+    const { summary } = summarizeFile(f, 'claude');
+    expect(summary.filesChanged).toBe(1);
+    expect(summary.linesAdded).toBe(2);
+    expect(summary.linesRemoved).toBe(1);
+  });
+
   test('background tasks finished through a queued notification are not pending', () => {
     const f = writeLines('bg-queue.jsonl', [
       human('run it in the background'),

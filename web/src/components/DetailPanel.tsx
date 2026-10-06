@@ -4,7 +4,8 @@ import { api } from '../api';
 import { compact, dateTime, duration, money, pct, relative, shortPath, time } from '../format';
 import { useI18n, type Key } from '../i18n';
 import { refreshSessions, useStore } from '../store';
-import { AgentBadge, Card, CopyButton, KNOBS, knobKey, LABELS, Star, StatusBadge } from './common';
+import { AgentBadge, Card, CopyButton, KNOBS, knobKey, LABELS, Star, StatusBadge, usePersisted } from './common';
+import { splitReasons } from '../split';
 import { Timeline } from './Timeline';
 
 const cache = new Map<string, SessionDetail>();
@@ -182,7 +183,6 @@ function Header({
             </option>
           ))}
         </select>
-        {!s.isSubagent && detail && <CopyButton text={handoff(s, detail, t)} label={t('detail.handoff')} />}
         {resume && <CopyButton text={resume} label={t('detail.resume')} />}
         {!showTimeline && (
           <button className="btn" onClick={() => setShowTimeline(true)}>
@@ -219,45 +219,115 @@ function Header({
         </span>
         {(s.rewinds ?? 0) > 0 && <span>{t('detail.rewinds', { n: s.rewinds!, m: s.rewoundInputs ?? 0 })}</span>}
       </div>
-      {split && !s.isSubagent && (
+      {split && (
         <div className="muted" style={{ marginTop: 4, color: 'var(--warn-ink)' }} title={t('split.why')}>
           {t('split.hint', { why: split })}
         </div>
       )}
+      {!s.isSubagent && detail && <HandoffBar s={s} detail={detail} />}
     </div>
   );
 }
 
-/** Signs that one conversation held more than one deliverable: the rule is one deliverable per conversation. */
-function splitReasons(s: SessionSummary, d?: SessionDetail): [Key, number][] {
-  const out: [Key, number][] = [];
-  if (s.compactions >= 2) out.push(['split.compacted', s.compactions]);
-  const t = [...s.inputTimes].sort((a, b) => a - b);
-  const overnight = t.filter((x, i) => i > 0 && x - t[i - 1] > 8 * 3600_000).length;
-  if (overnight) out.push(['split.resumed', overnight]);
-  const tasks = (d?.ai?.requests ?? []).filter((r) => r.kind === 'request').length;
-  if (tasks >= 2) out.push(['split.requests', tasks]);
-  return out;
+/** Start the next conversation: pick the agent and where it opens, Loggy does the rest. */
+function HandoffBar({ s, detail }: { s: SessionSummary; detail: SessionDetail }) {
+  const { t, lang } = useI18n();
+  const aiOn = useStore((x) => x.server?.aiAvailable);
+  const [to, setTo] = usePersisted<'claude' | 'codex'>('loggy.handoffTo', s.agent === 'kimi' ? 'claude' : s.agent);
+  const [target, setTarget] = usePersisted<'cmux' | 'terminal' | 'app' | 'copy'>('loggy.handoffTarget', 'cmux');
+  const [msg, setMsg] = useState<{ text: string; err?: boolean; manual?: string } | undefined>();
+  useEffect(() => setMsg(undefined), [s.id]);
+  // A clipboard write can hang waiting for permission: give up after a second and show the text instead.
+  const copy = (x: string) =>
+    Promise.race([navigator.clipboard.writeText(x).then(() => true, () => false), new Promise<boolean>((r) => setTimeout(() => r(false), 1000))]);
+  /** The handoff text, from an AI summary that covers the whole session when AI is set up. */
+  const build = async () => {
+    let ai = detail.ai;
+    if (aiOn && (!ai || (ai.basis && ai.basis.end < s.end))) {
+      setMsg({ text: t('handoff.summarizing') });
+      ai = await api.summarize(s.id, lang).then((r) => r.ai, () => ai);
+    }
+    return handoff(s, { ...detail, ai }, t);
+  };
+  const copyOnly = async () => {
+    const text = await build();
+    setMsg((await copy(text)) ? { text: t('detail.copied') } : { text: t('handoff.copyFailed'), manual: text });
+  };
+  const go = async () => {
+    // Ask once, on a click, so 'time to split' notifications can show later.
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission();
+    try {
+      const text = await build();
+      // The desktop apps take no message from outside: the handoff goes to the clipboard to paste.
+      const copiedText = target === 'app' ? await copy(text) : true;
+      setMsg({ text: t('handoff.working') });
+      const r = await api.handoff({ id: s.id, to, target, text, lang });
+      const cmd = `cd ${quote(r.cwd)} && ${r.command}`;
+      const ok = target === 'copy' || r.note === 'cmuxBlocked' ? await copy(cmd) : copiedText;
+      const done = t(r.note === 'cmuxBlocked' ? 'handoff.cmuxBlocked' : (`handoff.done.${target}` as Key));
+      setMsg(ok ? { text: done } : { text: t('handoff.copyFailed'), manual: target === 'app' ? text : cmd });
+    } catch (e) {
+      // fetch() throws a TypeError when the Loggy server is not running.
+      setMsg({ text: e instanceof TypeError ? t('handoff.offline') : (e as Error).message, err: true });
+    }
+  };
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+      <select className="sel" value={to} onChange={(e) => setTo(e.target.value as typeof to)} aria-label={t('handoff.to')}>
+        <option value="claude">Claude Code</option>
+        <option value="codex">Codex</option>
+      </select>
+      <select className="sel" value={target} onChange={(e) => setTarget(e.target.value as typeof target)} aria-label={t('handoff.target')}>
+        {(['cmux', 'terminal', 'app', 'copy'] as const).map((x) => (
+          <option key={x} value={x}>
+            {t(`handoff.target.${x}` as Key)}
+          </option>
+        ))}
+      </select>
+      <button className="btn primary" onClick={go}>
+        {t('handoff.go')}
+      </button>
+      <button className="btn" onClick={copyOnly}>
+        {t('detail.handoff')}
+      </button>
+      {msg && <span className={msg.err ? 'err' : 'muted'} style={{ fontSize: 12 }}>{msg.text}</span>}
+      {msg?.manual && <textarea className="input note" readOnly rows={3} value={msg.manual} onFocus={(e) => e.currentTarget.select()} style={{ width: '100%' }} />}
+    </div>
+  );
+}
+
+/** One line of a prompt without pasted-content wrappers, shortened. */
+function clean(text: string, max: number): string {
+  const one = text.replace(/<\\?\/?pasted_content[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max)}…` : one;
 }
 
 /** A prompt to start the next conversation (in either agent) where this one left off. */
 function handoff(s: SessionSummary, d: SessionDetail, t: ReturnType<typeof useI18n>['t']): string {
   const ai = d.ai;
   const sec = (label: Key, items?: string[]) => (items?.length ? [`${t(label)}:`, ...items.map((x) => `- ${x}`), ''] : []);
+  const asks = d.turns.filter((x) => !x.rewound && x.prompt.trim()).map((x) => clean(x.prompt, 200));
   const last = [...d.turns].reverse().find((x) => x.response)?.response;
+  const files = [...d.files].sort((a, b) => b.added + b.removed - (a.added + a.removed));
   return [
     t('handoff.head', { id: `${s.agent}:${s.sessionId}`, title: ai?.title || s.title }),
     `${t('handoff.where')}: ${s.cwd}${s.branch ? ` (${s.branch})` : ''}`,
     `${t('handoff.log')}: ${s.file}`,
     '',
     ...(ai
-      ? [...sec('handoff.done', ai.bullets), ...sec('handoff.decisions', ai.decisions), ...sec('handoff.unverified', [...(ai.unverified ?? []), ...(ai.openQuestions ?? [])]), ...sec('handoff.next', ai.nextSteps)]
-      : [`${t('handoff.goal')}: ${s.firstPrompt}`, '', ...sec('handoff.last', last ? [last] : [])]),
+      ? [
+          ...sec('handoff.done', ai.bullets),
+          ...sec('handoff.decisions', ai.decisions),
+          ...sec('handoff.unverified', [...(ai.unverified ?? []), ...(ai.openQuestions ?? [])]),
+          ...sec('handoff.next', ai.nextSteps),
+          ...sec('handoff.recent', asks.slice(-3)),
+        ]
+      : [`${t('handoff.goal')}: ${clean(s.firstPrompt, 200)}`, '', ...sec('handoff.recent', asks.slice(1).slice(-5)), ...sec('handoff.last', last ? [clean(last, 600)] : [])]),
     ...sec('handoff.commits', d.commits.map((c) => `${c.sha.slice(0, 7)} ${c.message ?? ''}`.trim())),
-    ...sec(
-      'handoff.files',
-      d.files.slice(0, 30).map((f) => relPath(f.path, s.cwd)),
-    ),
+    ...sec('handoff.files', [
+      ...files.slice(0, 15).map((f) => `${relPath(f.path, s.cwd)} (+${f.added} −${f.removed})`),
+      ...(files.length > 15 ? [t('handoff.moreFiles', { n: files.length - 15 })] : []),
+    ]),
     s.uncommittedEdits ? t('handoff.uncommitted') : '',
     t('handoff.ask'),
   ]
