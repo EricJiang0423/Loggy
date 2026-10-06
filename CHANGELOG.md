@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-10-06
 
 ### Added
 
@@ -17,12 +17,14 @@
 - **Stars, labels and notes.** Star a session, label it discussing / in progress / later / done, and keep a note; filter by them in *Options*. Kept in `~/.loggy/marks.json`.
 - **Instant live status for Claude Code.** Loggy reads `~/.claude/sessions/<pid>.json`, so a session waiting for approval or an answer shows *needs input* right away instead of *stalled* after two minutes.
 
-- **Git page** (Dev → Git): a project's commits with search by message, filter by path, changed files and the diff, and a link to the session that made each commit; plus lines of code per top-level folder over time (cached per file content).
+- **Git page** (Dev → Git): the commit graph of all local branches, each commit's dot in the color of the session that made it. Select a commit to see its message, changed files and diff, and that session turn by turn with the commits each turn made. Search by message, filter by path, and see lines of code per top-level folder over time (cached per file content).
 
 ### Fixed
 
 - The AI summary no longer disappears and comes back while a running session updates.
 - Coloring by project gives colors to the busiest projects of the week shown, so most of the week is no longer gray.
+- The session list and detail no longer take seconds to load when session folders sit on a slow or network mount (folder checks during project grouping are done once per folder), and indexing no longer stalls on transcripts whose first record is very large.
+- Ctrl+C no longer hangs while a browser tab has Loggy open.
 
 ### Removed
 

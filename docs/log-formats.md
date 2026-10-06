@@ -40,7 +40,9 @@ What Loggy reads and how. Neither tool documents these files, and both change th
   - Bash results carry `backgroundTaskId`.
   - Agent results carry `isAsync` with `agentId`.
   - Completion arrives later as a `<task-notification>` text: as a user record when the agent was idle, otherwise only in `queue-operation` (`content`) and `attachment` / `queued_command` (`prompt`) records.
-- `quotaLimits` on some assistant records carries a quota *status*, not percentages. The 5h / 7d percentages are only available to the status line command (`rate_limits.five_hour.used_percentage`, …).
+- `quotaLimits` on some assistant records carries a quota *status*, not percentages. Loggy doesn't use it.
+- **Rewind forks the conversation.** A rewind (and continuing in a new session) creates a new transcript that starts with a copy of the records up to that point: same `uuid` and `timestamp`, the new `sessionId`. The new records continue from the last copy (`parentUuid`). The old file keeps everything, including the turns that were rewound. Files whose first record has the same `uuid` are one conversation; Loggy skips the copies and marks the rewound turns.
+- **Running processes** write `~/.claude/sessions/<pid>.json` with `sessionId`, `status` (`busy`, `waiting` for approval or an answer, `idle`), `statusUpdatedAt` and more. The file can outlive the process, so check that the pid is alive.
 - Claude Code removes transcripts older than `cleanupPeriodDays` (default 30) at startup. Raise that setting if you want a longer history.
 
 ## Codex
@@ -52,6 +54,8 @@ What Loggy reads and how. Neither tool documents these files, and both change th
 - Older files may be compressed to `.jsonl.zst`. Loggy reads them with Node's built-in zstd.
 - A thread can continue in a new rollout file. Its `session_meta.id` is the thread id (not the id in the file name) and `history_base {thread_id, end_ordinal_exclusive, end_byte_offset}` points to the previous file. Loggy shows all files of a thread as one session.
 - `state_<N>.sqlite` is Codex's own index. Loggy doesn't need it.
+- `session_index.jsonl`: `{id, thread_name, updated_at}` per line. A rename appends a line, so the latest `updated_at` per id is the current thread name.
+- `.codex-global-state.json` (Codex app): `local-projects` (`{id, name, rootPaths}`) and `thread-project-assignments` (`thread id -> {projectId}`) are the projects the user put threads in. Several projects can share a root folder, so the folder alone doesn't tell the project.
 
 **Records:** every line is `{timestamp, type, payload}`. Newer versions also add `ordinal`.
 
