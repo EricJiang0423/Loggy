@@ -15,7 +15,7 @@ import type {
 } from '../shared/types.js';
 import { contextWindowFor, costOf, type UsageForCost } from './pricing.js';
 
-export const PARSER_VERSION = 5;
+export const PARSER_VERSION = 6;
 const BUCKET_MS = 600_000;
 const WAIT_CAP_MS = 30 * 60_000;
 const IDLE_SPLIT_MS = 30 * 60_000;
@@ -87,6 +87,10 @@ export interface AccState {
   bgPending: string[];
   hasPlan: boolean;
   badLines: number;
+  refusals?: number;
+  ctxParts?: [number, number, number];
+  speed?: Record<string, [number, number]>;
+  shas?: string[];
   /** Agent-specific scratch space (must stay JSON-serializable and bounded). */
   x: Record<string, unknown>;
 }
@@ -258,8 +262,20 @@ export function addFileChange(s: AccState, path: string, added: number, removed:
   sink?.file(s.turns.length, path);
 }
 
+/** Output tokens and the time they took, per model (ponytail: approximate, from log timestamps). */
+export function addSpeed(s: AccState, model: string | undefined, tokens: number, ms: number): void {
+  if (!model || tokens <= 0 || ms <= 0 || ms > 300_000) return;
+  const sp = (s.speed ??= {});
+  const cur = sp[model] ?? [0, 0];
+  sp[model] = [cur[0] + tokens, cur[1] + ms];
+}
+
 export function addCommit(s: AccState, ts: number, sha: string, sink?: DetailSink, message?: string, branch?: string): void {
   s.commits++;
+  if (sha) {
+    (s.shas ??= []).push(sha);
+    if (s.shas.length > 200) s.shas.shift();
+  }
   if (ts > s.lastCommitTs) s.lastCommitTs = ts;
   const t = currentTurn(s);
   if (t) t.commits++;
@@ -399,6 +415,10 @@ export function finalize(s: AccState): SessionSummary {
     repo: s.repo,
     lineage: s.lineage,
     forkTs: s.forkTs,
+    refusals: s.refusals || undefined,
+    ctxParts: s.ctxParts,
+    speed: s.speed,
+    commitShas: s.shas,
     component,
     hasPlan: s.hasPlan,
     badLines: s.badLines,

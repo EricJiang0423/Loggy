@@ -66,7 +66,14 @@ function dirGroup(dir: string, isGit: boolean): Group {
 }
 
 /** Sets `project` and `projectPath` (the group key) on every session. */
-export function groupProjects(list: SessionSummary[], mode: GroupBy, placeOf: (cwd: string) => Place, exists: (p: string) => boolean = fs.existsSync): void {
+export function groupProjects(
+  list: SessionSummary[],
+  mode: GroupBy,
+  placeOf: (cwd: string) => Place,
+  exists: (p: string) => boolean = fs.existsSync,
+  /** sessionId -> project the user chose in the Codex app (smart mode only) */
+  assigned: Map<string, string> = new Map(),
+): void {
   const groups = new Map<string, Group>();
   const pick = new Map<SessionSummary, Group>();
   const repoOf = (s: SessionSummary, p: Place) => p.remote ?? normalizeRemote(s.repo);
@@ -87,6 +94,11 @@ export function groupProjects(list: SessionSummary[], mode: GroupBy, placeOf: (c
   for (const s of list) {
     if (!s.cwd) {
       pick.set(s, { key: '', name: '(unknown)', hint: '' });
+      continue;
+    }
+    const chosen = mode === 'smart' ? assigned.get(s.sessionId) : undefined;
+    if (chosen) {
+      pick.set(s, { key: `app:${chosen}`, name: chosen, hint: '' });
       continue;
     }
     const p = placeOf(s.cwd);

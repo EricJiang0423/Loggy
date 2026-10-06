@@ -1472,3 +1472,16 @@ tr.rewound td {
   color: var(--ink);
   font-weight: 600;
 }
+
+.link-row {
+  cursor: pointer;
+}
+
+.link-row:hover .clip {
+  text-decoration: underline;
+}
+
+.badge.refused {
+  background: var(--critical-soft);
+  color: var(--critical-ink);
+}

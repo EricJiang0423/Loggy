@@ -8,6 +8,7 @@ import {
   addCommit,
   addFileChange,
   addModel,
+  addSpeed,
   addTool,
   addToolError,
   addUsage,
@@ -55,6 +56,10 @@ interface ClaudeX {
   /** tool_use id -> commit message guess (bounded via toolOrder). */
   cmd: Record<string, string>;
   lastPromptId?: string;
+  /** Time of the previous record, for output speed. */
+  lastTs?: number;
+  prevTs?: number;
+  refused?: string[];
   lastText?: string;
 }
 
@@ -144,6 +149,8 @@ export function claudeRecord(s: AccState, d: Json, sink?: DetailSink, responses?
   const type = d.type;
   const ts = parseTs(d.timestamp);
   if (!s.lineage && typeof d.uuid === 'string' && !d.isSidechain) s.lineage = d.uuid;
+  x.prevTs = x.lastTs;
+  if (ts) x.lastTs = ts;
   if (typeof d.cwd === 'string' && d.cwd && !s.cwd) s.cwd = d.cwd;
   if (typeof d.gitBranch === 'string' && d.gitBranch && d.gitBranch !== 'HEAD') s.branch = d.gitBranch;
   if (typeof d.version === 'string') s.version = d.version;
@@ -343,6 +350,8 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
     const max = now.map((v, i) => Math.max(v || 0, prev![i]));
     const delta = max.map((v, i) => v - prev![i]);
     x.msg[id] = max;
+    if (delta[4] > 0 && x.prevTs) addSpeed(s, model, delta[4], ts - x.prevTs);
+    s.ctxParts = [max[0], max[1], max[2] + max[3]];
     if (delta.some((v) => v > 0)) {
       addUsage(s, model, { input: delta[0], cacheRead: delta[1], cacheWrite5m: delta[2], cacheWrite1h: delta[3], output: delta[4], reasoning: delta[5] }, max[0] + max[1] + max[2] + max[3]);
     }
@@ -385,6 +394,10 @@ function assistantRecord(s: AccState, x: ClaudeX, d: Json, ts: number, sink?: De
     x.lastText = text.slice(-400);
     sink?.item(ts, 'assistant', text, s.turns.length, undefined, 8000);
     if (responses) responses.set(s.turns.length, text);
+  }
+  if (msg.stop_reason === 'refusal' && !(x.refused ?? []).includes(msg.id)) {
+    s.refusals = (s.refusals ?? 0) + 1;
+    x.refused = [...(x.refused ?? []), msg.id].slice(-20);
   }
   const subagentDone = s.isSubagent && !msg.stop_reason && text && !blocks.some((b) => b?.type === 'tool_use');
   if (msg.stop_reason === 'end_turn' || msg.stop_reason === 'stop_sequence' || msg.stop_reason === 'refusal' || subagentDone) {

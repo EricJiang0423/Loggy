@@ -124,7 +124,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-const DIMS: ColorDim[] = ['outcome', 'agent', 'project', 'component', 'model'];
+const DIMS: ColorDim[] = ['outcome', 'agent', 'project', 'category', 'model'];
 
 export function Calendar({
   sessions,
@@ -180,9 +180,14 @@ export function Calendar({
     return () => ro.disconnect();
   }, []);
 
-  const slots = useMemo(() => slotMap(all, colorBy), [all, colorBy]);
   const pieces = useMemo(() => layoutWeek(sessions, weekStart), [sessions, weekStart]);
   const weekSessions = useMemo(() => [...new Map(pieces.map((p) => [p.s.id, p.s])).values()], [pieces]);
+  const categories = useStore((x) => x.server?.ai.categories);
+  // Projects get colors by how busy they are in the week shown, so the week's projects aren't all gray.
+  const slots = useMemo(
+    () => slotMap(colorBy === 'project' ? weekSessions : all, colorBy, colorBy === 'category' ? categories?.map((c) => c.name) : undefined),
+    [all, weekSessions, colorBy, categories],
+  );
 
   // Scroll to the first activity of the week (or 8:00) when the week changes.
   useEffect(() => {

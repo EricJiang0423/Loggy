@@ -42,7 +42,7 @@ export function outcomeColor(o: Outcome | LiveStatus): string {
   }
 }
 
-export type ColorDim = 'outcome' | 'agent' | 'project' | 'component' | 'model';
+export type ColorDim = 'outcome' | 'agent' | 'project' | 'category' | 'model';
 
 export function dimValue(s: SessionSummary, dim: ColorDim): string {
   switch (dim) {
@@ -52,8 +52,8 @@ export function dimValue(s: SessionSummary, dim: ColorDim): string {
       return s.agent;
     case 'project':
       return s.project || '';
-    case 'component':
-      return s.component ? `${s.project}/${s.component}` : '';
+    case 'category':
+      return s.category ?? '';
     case 'model':
       return s.models[s.models.length - 1] ?? '';
   }
@@ -63,7 +63,9 @@ export function dimValue(s: SessionSummary, dim: ColorDim): string {
  * Stable color slots for a dimension: the 7 values with the most sessions overall get
  * slots 0..6 (ordered by name so they never reshuffle when counts shift), the rest are "Other".
  */
-export function slotMap(all: SessionSummary[], dim: ColorDim): Map<string, number> {
+export function slotMap(all: SessionSummary[], dim: ColorDim, order?: string[]): Map<string, number> {
+  // Categories come in a fixed order from the server, so each keeps its color.
+  if (order?.length) return new Map(order.slice(0, 8).map((k, i) => [k, i]));
   const counts = new Map<string, number>();
   for (const s of all) {
     const v = dimValue(s, dim);
@@ -71,7 +73,7 @@ export function slotMap(all: SessionSummary[], dim: ColorDim): Map<string, numbe
   }
   const top = [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 7)
+    .slice(0, 8)
     .map(([k]) => k)
     .sort((a, b) => a.localeCompare(b));
   return new Map(top.map((k, i) => [k, i]));

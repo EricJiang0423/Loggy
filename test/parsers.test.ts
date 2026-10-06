@@ -436,3 +436,38 @@ describe('codex: real-log regressions', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe('0.6 summary data', () => {
+  const base = { cwd: '/w/p', sessionId: 's6', version: '2.1.290', gitBranch: 'main', isSidechain: false };
+  const ts = (s: number) => new Date(Date.UTC(2026, 9, 6, 9, 0, s)).toISOString();
+  test('claude: refusals, context make-up, output speed, commit shas and edited files', () => {
+    const f = writeLines('six.jsonl', [
+      { ...base, type: 'user', uuid: 'u1', timestamp: ts(0), promptId: 'p1', origin: { kind: 'human' }, message: { role: 'user', content: 'go' } },
+      { ...base, type: 'assistant', uuid: 'a1', parentUuid: 'u1', timestamp: ts(10), message: { id: 'm1', model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'git commit -m x' } }], stop_reason: 'tool_use', usage: { input_tokens: 5, cache_read_input_tokens: 900, cache_creation_input_tokens: 100, output_tokens: 500 } } },
+      { ...base, type: 'user', uuid: 'r1', parentUuid: 'a1', timestamp: ts(12), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] }, toolUseResult: { stdout: '', gitOperation: { commit: { sha: 'abc1234def', kind: 'commit' } } } },
+      { ...base, type: 'user', uuid: 'r2', parentUuid: 'r1', timestamp: ts(13), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: 'ok' }] }, toolUseResult: { filePath: '/w/p/src/a.ts', structuredPatch: [{ lines: ['+x'] }] } },
+      { ...base, type: 'assistant', uuid: 'a2', parentUuid: 'r2', timestamp: ts(18), message: { id: 'm2', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'No.' }], stop_reason: 'refusal', usage: { input_tokens: 7, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 100 } } },
+    ]);
+    const r = summarizeFile(f, 'claude');
+    expect(r.summary.refusals).toBe(1);
+    expect(r.summary.ctxParts).toEqual([7, 1000, 0]);
+    expect(r.summary.speed?.['claude-opus-5-5']).toEqual([600, 15_000]); // 500 tok in 10 s + 100 tok in 5 s
+    expect(r.summary.commitShas).toEqual(['abc1234def']);
+    expect(r.files).toEqual(['/w/p/src/a.ts']);
+  });
+
+  test('codex: output speed is measured from the last input to the token count', () => {
+    const u = (input: number, out: number) => ({ input_tokens: input, cached_input_tokens: 0, output_tokens: out, reasoning_output_tokens: 0, total_tokens: input + out });
+    const f = writeLines('rollout-2026-10-06T09-00-00-0199a0b0-0000-7000-8000-000000000301.jsonl', [
+      { timestamp: ts(0), type: 'session_meta', payload: { id: '0199a0b0-0000-7000-8000-000000000301', cwd: '/w/p', source: 'cli' } },
+      { timestamp: ts(0), type: 'turn_context', payload: { model: 'gpt-6-sol' } },
+      { timestamp: ts(0), type: 'event_msg', payload: { type: 'task_started', turn_id: 't1' } },
+      { timestamp: ts(1), type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: 'go' }] } } },
+      { timestamp: ts(5), type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: u(100, 200), last_token_usage: u(100, 200) } } },
+      { timestamp: ts(9), type: 'response_item', payload: { type: 'function_call_output', call_id: 'c', output: 'ok' } },
+      { timestamp: ts(11), type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: u(250, 300), last_token_usage: u(150, 100) } } },
+      { timestamp: ts(12), type: 'event_msg', payload: { type: 'task_complete', turn_id: 't1' } },
+    ]);
+    expect(summarizeFile(f, 'codex').summary.speed?.['gpt-6-sol']).toEqual([300, 6_000]); // 200 tok / 4 s + 100 tok / 2 s
+  });
+});

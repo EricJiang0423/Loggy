@@ -186,7 +186,7 @@ function anthropicClient(c: AiConfig): Anthropic {
 }
 
 /** One plain completion; returns the reply text. */
-async function complete(c: AiConfig, system: string, user: string, maxTokens: number): Promise<string> {
+export async function complete(c: AiConfig, system: string, user: string, maxTokens: number): Promise<string> {
   if (c.provider === 'openai') {
     const res = await fetch(`${c.baseURL}/chat/completions`, {
       method: 'POST',

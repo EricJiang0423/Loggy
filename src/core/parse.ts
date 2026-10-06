@@ -20,6 +20,8 @@ export interface SummaryResult {
   state: AccState;
   offset: number;
   size: number;
+  /** Paths edited in the session (for related sessions). */
+  files: string[];
 }
 
 const ATTACHMENT = Buffer.from('"attachment":{');
@@ -111,6 +113,7 @@ export function summarizeFile(file: string, agent: Agent, resume?: { state: AccS
     state,
     offset: scan.endOffset,
     size: scan.size,
+    files: Object.keys(state.files).slice(0, 500),
   };
 }
 

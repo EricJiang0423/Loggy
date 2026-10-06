@@ -81,6 +81,9 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         lang: saved.lang ?? 'en',
         source: c?.source,
         autoStatus: auto.status,
+        categories: auto.categories?.categories,
+        categorizedAt: auto.categories?.updatedAt,
+        projectNotes: auto.categories ? Object.fromEntries(Object.entries(auto.categories.projects).map(([k, v]) => [k, v.description])) : undefined,
       },
     };
   }
@@ -96,7 +99,9 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
       indexer.aiLite.set(a.id, lite(a));
       indexer.touch(a.id);
     },
+    onCategories: (c) => indexer.setCategories(c),
   });
+  if (auto.categories) indexer.setCategories(auto.categories);
   for (const [id, a] of auto.saved) indexer.aiLite.set(id, lite(a));
   if (opts.autoSummaries !== false) auto.start();
 
@@ -152,6 +157,8 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         const ai = readAiSummary(cfg.dataDir, id);
         return sendJson(req, res, { ...d, ai, completion: completionOf(d.summary, ai ? ai.workComplete : null) });
       }
+      case '/api/related':
+        return sendJson(req, res, { related: indexer.related(url.searchParams.get('id') ?? '') });
       case '/api/search':
         return sendJson(req, res, { ids: indexer.search(url.searchParams.get('q') ?? '') });
       case '/api/instructions': {
@@ -196,6 +203,11 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         writeSettings(cfg.dataDir, { groupBy });
         return sendJson(req, res, state());
       }
+      case '/api/ai/classify':
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        if (url.searchParams.get('wait') === '1') await auto.classify(true);
+        else void auto.classify(true);
+        return sendJson(req, res, { ...auto.status, categories: auto.categories?.categories ?? [] });
       case '/api/ai/auto/run':
         if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
         if (url.searchParams.get('wait') === '1') return sendJson(req, res, await auto.run());

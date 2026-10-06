@@ -39,6 +39,7 @@ export const api = {
   state: () => get<ServerState>('api/state'),
   sessions: (since: number) => get<{ gen: number; full: boolean; sessions: SessionSummary[]; removed: string[] }>(`api/sessions?since=${since}`),
   session: (id: string, signal?: AbortSignal) => get<SessionDetail>(`api/session?id=${encodeURIComponent(id)}`, signal),
+  related: (id: string) => get<{ related: { id: string; shared: number }[] }>(`api/related?id=${encodeURIComponent(id)}`),
   search: (q: string, signal?: AbortSignal) => get<{ ids: string[] }>(`api/search?q=${encodeURIComponent(q)}`, signal),
   instructions: (project: string) => get<InstructionsInfo & { globals: { path: string; exists: boolean }[] }>(`api/instructions?project=${encodeURIComponent(project)}`),
   instructionVersion: (project: string, file: string, sha?: string, global = false) =>
@@ -49,6 +50,7 @@ export const api = {
   setGroupBy: (groupBy: ServerState['groupBy']) => post<ServerState>(`api/settings?groupBy=${groupBy}`),
   saveAi: (body: AiForm) => postJson<ServerState>('api/settings/ai', body),
   testAi: (body: AiForm) => postJson<{ ok: boolean; model: string; ms: number; reply?: string; error?: string }>('api/ai/test', body),
+  classify: () => postJson<unknown>('api/ai/classify', {}),
   runAuto: () => postJson<NonNullable<ServerState['ai']['autoStatus']>>('api/ai/auto/run', {}),
   rescan: (full: boolean) => post<{ ok: boolean }>(`api/rescan${full ? '?full=1' : ''}`),
 };

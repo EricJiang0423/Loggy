@@ -49,6 +49,14 @@ describe('automatic summaries end to end', () => {
       req.on('end', () => {
         calls++;
         const body = JSON.parse(raw);
+        const system = String(body.messages?.[0]?.content ?? '');
+        const reply = (content: string) => {
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ id: 'x', object: 'chat.completion', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] }));
+        };
+        if (system.includes('STEP 1')) return reply(JSON.stringify({ projects: [] }));
+        if (system.includes('STEP 2')) return reply(JSON.stringify({ categories: [{ name: 'Apps', description: 'app work' }], projects: [] }));
+        if (system.includes('STEP 3')) return reply(JSON.stringify({ sessions: [] }));
         const summary = { title: 'Auto title', bullets: ['did a thing'], decisions: [], unverified: ['not run in the browser'], concerns: [], openQuestions: [], nextSteps: ['check the page'], requests: [], type: 'implementation', workComplete: false };
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ id: 'x', object: 'chat.completion', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(summary) }, finish_reason: 'stop' }] }));
@@ -81,6 +89,10 @@ describe('automatic summaries end to end', () => {
     const withAi = sessions.filter((s: any) => s.ai);
     expect(withAi.length).toBe(res.done);
     expect(withAi[0].ai).toMatchObject({ title: 'Auto title', next: ['check the page'], type: 'implementation' });
+    // the run also built the smart categories; every recent session falls back to its project's
+    const state = (await (await fetch(`${app.url}/api/state`)).json()) as any;
+    expect(state.ai.categories).toEqual([{ name: 'Apps', description: 'app work' }]);
+    expect(withAi.every((x: any) => x.category === 'Apps')).toBe(true);
     const before = calls;
     const again = (await (await fetch(`${app.url}/api/ai/auto/run?wait=1`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json()) as any;
     expect(again.done).toBe(0);

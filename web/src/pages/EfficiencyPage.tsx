@@ -110,6 +110,23 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
     return { labels, starts, cost, active, wait, peak, heat };
   }, [scoped, from, days, lang]);
 
+  // Output speed per model over the period (estimated from log timestamps).
+  const speedRows = useMemo(() => {
+    const m = new Map<string, [number, number]>();
+    for (const s of scoped) {
+      if (s.end < from || s.start >= to) continue;
+      for (const [model, [tok, ms]] of Object.entries(s.speed ?? {})) {
+        const cur = m.get(model) ?? [0, 0];
+        m.set(model, [cur[0] + tok, cur[1] + ms]);
+      }
+    }
+    return [...m.entries()]
+      .filter(([, [tok, ms]]) => tok >= 2000 && ms > 0)
+      .map(([model, [tok, ms]]) => ({ model, tokens: tok, rate: (tok / ms) * 1000 }))
+      .sort((a, b) => b.tokens - a.tokens)
+      .slice(0, 12);
+  }, [scoped, from, to]);
+
   const cmp = useMemo(() => {
     const rows = (['claude', 'codex'] as const).map((a) => {
       const g = aggregate(
@@ -337,6 +354,34 @@ export function EfficiencyPage({ onOpen }: { onOpen: (id: string) => void }) {
               </table>
             </div>
           </div>
+          {speedRows.length > 0 && (
+            <div className="chart-card">
+              <h3>
+                <span className="h">{t('eff.speed')}</span>
+              </h3>
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>{t('speed.model')}</th>
+                    <th className="r">{t('eff.speed')}</th>
+                    <th className="r">{t('speed.tokens')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {speedRows.map((r) => (
+                    <tr key={r.model}>
+                      <td className="mono">{r.model}</td>
+                      <td className="r">{t('eff.speedValue', { n: r.rate.toFixed(0) })}</td>
+                      <td className="r">{compact(r.tokens, lang)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                {t('speed.note')}
+              </div>
+            </div>
+          )}
           <div className="chart-card wide">
             <h3><span className="h">{t('anom.title')}</span></h3>
             {anomalies.length === 0 ? (

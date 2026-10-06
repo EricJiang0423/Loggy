@@ -10,6 +10,15 @@
 - **One summary layout** for every model: title, what happened, decisions, not verified, concerns, open questions, next steps, request status, a fixed work type and whether the work is complete, in the language chosen in Settings. Older summaries are replaced on the next run.
 - **Timeline views:** all, without intermediate output (your inputs and each turn's last reply), or only your inputs. Inputs are numbered, and question cards mark the chosen answer.
 
+- **Smart categories (AI).** After the automatic summaries, the model says what each project is doing, groups the projects into 4–8 categories and puts every recent session in one, reusing earlier names so colors stay stable. Color the calendar by *AI category* (it replaces *Component*, which overlapped with projects).
+- **Codex app names and projects.** Codex sessions use the thread name from the Codex app (the latest rename), and smart grouping puts a thread in the project you chose for it in the Codex app.
+- **Session detail:** category and refusal badges, the make-up of the last request's context, an estimated output speed, and *Related sessions* (sessions that edited the same files). The efficiency page lists output speed per model.
+
+### Fixed
+
+- The AI summary no longer disappears and comes back while a running session updates.
+- Coloring by project gives colors to the busiest projects of the week shown, so most of the week is no longer gray.
+
 ### Removed
 
 - Usage meters (Codex and Claude 5h / 7d), the `/api/usage` endpoint and the `loggy statusline` command.

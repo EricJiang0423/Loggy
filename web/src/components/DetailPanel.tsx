@@ -23,8 +23,9 @@ function useDetail(id: string | undefined, summary: SessionSummary | undefined) 
       setError(undefined);
       return;
     }
-    const stale = [...cache.entries()].find(([k]) => k.startsWith(`${id}@`))?.[1];
-    setDetail(stale);
+    // Keep what is on screen while the newer version loads, so the panel doesn't flicker.
+    const stale = [...cache.entries()].reverse().find(([k]) => k.startsWith(`${id}@`))?.[1];
+    setDetail((cur) => (cur && cur.summary.id === id ? cur : stale));
     setError(undefined);
     setLoading(true);
     const ac = new AbortController();
@@ -91,7 +92,18 @@ export function DetailPanel({
         <div className="pane-body" ref={bodyRef}>
           {error && !detail && <div className="empty-state err">{t('detail.loadError', { msg: error })}</div>}
           {!detail && !error && <div className="empty-state">{t('detail.loading')}</div>}
-          {detail && s && <Body s={s} d={detail} onAi={(ai) => setDetail({ ...detail, ai, completion: { ...detail.completion, workComplete: ai?.workComplete ?? null } })} />}
+          {detail && s && (
+            <Body
+              s={s}
+              d={detail}
+              onSelect={onSelect}
+              onAi={(ai) => {
+                const next = (d: SessionDetail) => ({ ...d, ai, completion: { ...d.completion, workComplete: ai?.workComplete ?? null } });
+                for (const [k, d] of cache) if (k.startsWith(`${detail.summary.id}@`)) cache.set(k, next(d));
+                setDetail(next(detail));
+              }}
+            />
+          )}
           {loading && detail && <div className="muted" style={{ padding: '0 14px 10px' }}>{t('common.loading')}</div>}
         </div>
       </div>
@@ -126,6 +138,8 @@ function Header({
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <StatusBadge s={s} />
         <AgentBadge agent={s.agent} />
+        {s.category && <span className="badge">{s.category}</span>}
+        {(s.refusals ?? 0) > 0 && <span className="badge refused">{t('detail.refusals', { n: s.refusals! })}</span>}
         <span className="chip" title={s.sessionId}>
           {s.sessionId.slice(0, 8)}
         </span>
@@ -209,7 +223,7 @@ function Completion({ c, hasEdits, live }: { c: CompletionCheck; hasEdits: boole
   );
 }
 
-function Body({ s, d, onAi }: { s: SessionSummary; d: SessionDetail; onAi: (ai: SessionDetail['ai']) => void }) {
+function Body({ s, d, onAi, onSelect }: { s: SessionSummary; d: SessionDetail; onAi: (ai: SessionDetail['ai']) => void; onSelect: (id: string) => void }) {
   const { t, lang } = useI18n();
   const [showAllFiles, setShowAllFiles] = useState(false);
   const files = showAllFiles ? d.files : d.files.slice(0, 12);
@@ -280,6 +294,7 @@ function Body({ s, d, onAi }: { s: SessionSummary; d: SessionDetail; onAi: (ai: 
       </Card>
       <Requests d={d} />
       <Efficiency s={s} />
+      <Related id={s.id} onSelect={onSelect} />
       <Turns d={d} />
     </div>
   );
@@ -475,6 +490,8 @@ function Efficiency({ s }: { s: SessionSummary }) {
   const cacheBase = s.tokens.input + s.tokens.cacheRead + s.tokens.cacheWrite;
   const cacheHit = cacheBase ? (s.tokens.cacheRead / cacheBase) * 100 : 0;
   const perCommit = s.commits ? (s.totalCostUSD ?? s.costUSD) / s.commits : undefined;
+  const sp = Object.values(s.speed ?? {}).reduce((a, [tok, ms]) => [a[0] + tok, a[1] + ms], [0, 0]);
+  const speed = sp[1] > 0 ? (sp[0] / sp[1]) * 1000 : undefined;
   return (
     <Card title={t('eff.block')}>
       <div className="stats">
@@ -504,7 +521,53 @@ function Efficiency({ s }: { s: SessionSummary }) {
           <div className="v num">{perCommit === undefined ? '–' : money(perCommit, lang)}</div>
           {avg !== undefined && <div className="s">{t('eff.vsProject', { v: money(avg, lang) })}</div>}
         </div>
+        {speed !== undefined && (
+          <div className="stat">
+            <div className="l">{t('eff.speed')}</div>
+            <div className="v num">{t('eff.speedValue', { n: speed.toFixed(0) })}</div>
+          </div>
+        )}
       </div>
+      {s.ctxParts && (
+        <div className="muted num" style={{ fontSize: 12, marginTop: 10 }}>
+          {t('eff.ctxParts')}: {t('eff.ctxPartsValue', { read: compact(s.ctxParts[1], lang), write: compact(s.ctxParts[2], lang), fresh: compact(s.ctxParts[0], lang) })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** Other sessions that edited the same files. */
+function Related({ id, onSelect }: { id: string; onSelect: (id: string) => void }) {
+  const { t, lang } = useI18n();
+  const list = useStore((x) => x.sessions);
+  const [related, setRelated] = useState<{ id: string; shared: number }[]>([]);
+  useEffect(() => {
+    let on = true;
+    api
+      .related(id)
+      .then((r) => on && setRelated(r.related))
+      .catch(() => on && setRelated([]));
+    return () => {
+      on = false;
+    };
+  }, [id]);
+  const rows = related.map((r) => ({ ...r, s: list.get(r.id) })).filter((r) => r.s);
+  if (!rows.length) return null;
+  return (
+    <Card title={t('rel.title')}>
+      <ul className="plain">
+        {rows.map(({ id: rid, shared, s: o }) => (
+          <li key={rid} className="link-row" onClick={() => onSelect(rid)}>
+            <StatusBadge s={o!} />
+            <span className="clip" style={{ flex: 1, minWidth: 0 }}>
+              {o!.ai?.title ?? o!.title}
+            </span>
+            <span className="muted num">{t('rel.shared', { n: shared })}</span>
+            <span className="muted num">{dateTime(o!.start, lang)}</span>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }

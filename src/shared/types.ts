@@ -91,6 +91,16 @@ export interface SessionSummary {
   rewinds?: number;
   /** User inputs that a rewind took back. */
   rewoundInputs?: number;
+  /** Requests the model refused (safety). */
+  refusals?: number;
+  /** Context of the latest request: [new input, cache read, cache write] tokens. */
+  ctxParts?: [number, number, number];
+  /** Estimated output speed per model: [output tokens, ms]. Time runs from the previous record. */
+  speed?: Record<string, [number, number]>;
+  /** Commits made in the session (full or short sha), newest last. */
+  commitShas?: string[];
+  /** Smart category from the AI classification (filled by the server). */
+  category?: string;
   /** Short form of the saved AI summary (filled by the server). */
   ai?: { title: string; type: string; next: string[]; complete: boolean; ts: number };
   /** Most edited top-level directory relative to cwd. */
@@ -240,7 +250,12 @@ export interface AiSettingsView {
   /** Where the endpoint in use comes from, if any. */
   source?: 'settings' | 'env';
   /** Last background run. */
-  autoStatus?: { running: boolean; lastRun?: number; done: number; pending: number; failed: number; lastError?: string };
+  autoStatus?: { running: boolean; lastRun?: number; done: number; pending: number; failed: number; lastError?: string; classifying?: boolean };
+  /** Smart categories, in a stable order (their colors follow it). */
+  categories?: { name: string; description: string }[];
+  categorizedAt?: number;
+  /** What each project is doing, from the classification. */
+  projectNotes?: Record<string, string>;
 }
 
 export interface ServerState {

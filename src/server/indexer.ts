@@ -10,6 +10,7 @@ import { liveStatus } from '../shared/status.js';
 import type { Agent, IndexProgress, SessionSummary, SourceInfo } from '../shared/types.js';
 import { ensureDir } from './config.js';
 import type { Pool } from './pool.js';
+import { readCodexThreads } from './codexstate.js';
 import { groupProjects, readRemote, type GroupBy, type Place } from './projects.js';
 
 const CACHE_VERSION = 2;
@@ -25,6 +26,8 @@ export interface Entry {
   state?: AccState;
   summary: SessionSummary;
   search: string;
+  /** Paths edited in the session (for related sessions). */
+  files?: string[];
   gen: number;
 }
 
@@ -57,6 +60,8 @@ export class Indexer extends EventEmitter {
   groupBy: GroupBy = 'smart';
   /** AI summary per session id, attached to the list (kept by the server). */
   aiLite = new Map<string, NonNullable<SessionSummary['ai']>>();
+  /** Smart categories (kept by the server). */
+  categories?: { sessions: Record<string, string>; projects: Record<string, { category: string }> };
   private known: Discovered[] = [];
   readonly cacheFile: string;
 
@@ -266,6 +271,7 @@ export class Indexer extends EventEmitter {
       state: keepState ? r.state : undefined,
       summary,
       search: searchText(summary, r.state),
+      files: r.files,
       gen: ++this.gen,
     };
     this.entries.set(file, entry);
@@ -401,7 +407,23 @@ export class Indexer extends EventEmitter {
     // Subagents of an earlier file of a forked conversation belong to the merged session.
     const mergedId = this.mergedIds(groups);
     for (const s of merged) if (s.parentId && mergedId.has(s.parentId)) s.parentId = mergedId.get(s.parentId);
-    groupProjects(merged, this.groupBy, (cwd) => this.place(cwd));
+    // The Codex app's own thread names (latest rename) and the projects the user put threads in.
+    const app = this.codexThreads();
+    for (const s of merged) {
+      const name = s.agent === 'codex' ? app.names.get(s.sessionId) : undefined;
+      if (name) {
+        s.title = name;
+        s.titleSource = 'custom';
+      }
+    }
+    groupProjects(merged, this.groupBy, (cwd) => this.place(cwd), undefined, app.projects);
+    if (this.categories) {
+      const cats = this.categories;
+      const byId = new Map(merged.map((s) => [s.id, s]));
+      for (const s of merged) s.category = cats.sessions[s.id] ?? cats.projects[s.projectPath]?.category;
+      // Subagents take their parent's category.
+      for (const s of merged) if (s.isSubagent && s.parentId) s.category = byId.get(s.parentId)?.category ?? s.category;
+    }
     const byId = new Map(merged.map((s) => [s.id, s]));
     for (const s of merged) {
       // A subagent's edits count as committed once its parent commits after them.
@@ -480,15 +502,47 @@ export class Indexer extends EventEmitter {
     return [];
   }
 
+  /** Sessions that edited the same files, most shared first. */
+  related(id: string, limit = 8): { id: string; shared: number }[] {
+    const groups = this.groups();
+    const mergedId = this.mergedIds(groups);
+    const filesOf = (pages: Entry[]) => new Set(pages.flatMap((p) => p.files ?? []));
+    const mine = filesOf(this.pagesOf(id));
+    if (!mine.size) return [];
+    const self = mergedId.get(id) ?? id;
+    const out: { id: string; shared: number }[] = [];
+    for (const pages of groups.values()) {
+      const gid = pages[pages.length - 1].summary.id;
+      if (gid === self || pages[0].summary.isSubagent) continue;
+      let shared = 0;
+      for (const f of filesOf(pages)) if (mine.has(f)) shared++;
+      if (shared) out.push({ id: mergedId.get(gid) ?? gid, shared });
+    }
+    return out.sort((a, b) => b.shared - a.shared).slice(0, limit);
+  }
+
   search(q: string): string[] {
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
     if (!terms.length) return [];
     const mergedId = this.mergedIds(this.groups());
     const out = new Set<string>();
+    const names = this.codexThreads().names;
     for (const e of this.entries.values()) {
-      if (terms.every((t) => e.search.includes(t))) out.add(mergedId.get(e.summary.id) ?? e.summary.id);
+      const text = e.agent === 'codex' && names.has(e.summary.sessionId) ? `${e.search}\n${names.get(e.summary.sessionId)!.toLowerCase()}` : e.search;
+      if (terms.every((t) => text.includes(t))) out.add(mergedId.get(e.summary.id) ?? e.summary.id);
     }
     return [...out];
+  }
+
+  private codexThreads(): { names: Map<string, string>; projects: Map<string, string> } {
+    const names = new Map<string, string>();
+    const projects = new Map<string, string>();
+    for (const dir of this.sources.codexDirs) {
+      const r = readCodexThreads(dir);
+      for (const [k, v] of r.names) names.set(k, v);
+      for (const [k, v] of r.projects) projects.set(k, v);
+    }
+    return { names, projects };
   }
 
   // ---------- rewinds ----------
@@ -577,6 +631,14 @@ export class Indexer extends EventEmitter {
       this.places.set(cwd, p);
     }
     return p;
+  }
+
+  /** New smart categories: every client gets a full list. */
+  setCategories(c: Indexer['categories']): void {
+    this.categories = c;
+    this.gen++;
+    this.removedFloor = this.gen;
+    this.emit('update');
   }
 
   /** Marks a session as changed (e.g. a new AI summary) so clients fetch it again. */

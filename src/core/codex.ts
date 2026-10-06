@@ -9,6 +9,7 @@ import {
   addCommit,
   addFileChange,
   addModel,
+  addSpeed,
   addTool,
   addToolError,
   addUsage,
@@ -32,6 +33,8 @@ interface CodexX {
   tot: number[];
   /** Set once the first token_count of this file has fixed the baseline. */
   totSeen?: boolean;
+  /** Time of the last input to the model (user message, tool output), for output speed. */
+  lastInputTs?: number;
   turnId?: string;
   lastText?: string;
   cmpTop: number;
@@ -74,6 +77,7 @@ export function codexLine(s: AccState, buf: Buffer, start: number, end: number):
   if (top === 'response_item') {
     const ts = sniffTimestamp(buf, start, end);
     const pt = types[1];
+    if (pt === 'function_call_output' || pt === 'custom_tool_call_output') x.lastInputTs = sniffTimestamp(buf, start, end) || x.lastInputTs;
     if (pt && TOOL_TYPES.has(pt)) {
       touch(s, ts);
       addTool(s);
@@ -181,6 +185,7 @@ function agentTextOf(item: Json): string {
 }
 
 function userInput(s: AccState, x: CodexX, ts: number, raw: string, sink?: DetailSink): void {
+  if (ts) x.lastInputTs = ts;
   const text = raw.trim();
   if (!text) return;
   const key = text.slice(0, 200);
@@ -214,7 +219,7 @@ function usageVec(u: Json): number[] {
   ];
 }
 
-function tokens(s: AccState, x: CodexX, total: Json | undefined, last: Json | undefined, window: unknown): void {
+function tokens(s: AccState, x: CodexX, total: Json | undefined, last: Json | undefined, window: unknown, ts = 0): void {
   if (typeof window === 'number' && window > 0) s.ctxWindow = window;
   if (!total || typeof total !== 'object') return;
   const cur = usageVec(total);
@@ -231,6 +236,11 @@ function tokens(s: AccState, x: CodexX, total: Json | undefined, last: Json | un
   const delta = cur.map((v, i) => Math.max(0, v - x.tot[i]));
   x.tot = cur.map((v, i) => Math.max(v, x.tot[i]));
   const ctx = lastVec ? lastVec[0] : 0;
+  if (lastVec) s.ctxParts = [Math.max(0, lastVec[0] - lastVec[1]), lastVec[1], lastVec[2]];
+  if (ts && x.lastInputTs) {
+    addSpeed(s, s.lastModel, delta[3], ts - x.lastInputTs);
+    x.lastInputTs = ts; // the next request starts from here unless an input comes first
+  }
   if (delta.some((v) => v > 0) || ctx) {
     // OpenAI input_tokens include cached tokens.
     const cached = delta[1];
@@ -316,6 +326,7 @@ export function codexRecord(s: AccState, d: Json, sink?: DetailSink, responses?:
 function eventMsg(s: AccState, x: CodexX, p: Json, ts: number, sink?: DetailSink, responses?: Map<number, string>): void {
   switch (p.type) {
     case 'task_started': {
+      x.lastInputTs = ts;
       if (typeof p.model_context_window === 'number') s.ctxWindow = p.model_context_window;
       // started_at can be hours off the record time, so the record time is used.
       x.turnId = p.turn_id;
@@ -338,7 +349,7 @@ function eventMsg(s: AccState, x: CodexX, p: Json, ts: number, sink?: DetailSink
       x.turnId = undefined;
       return;
     case 'token_count':
-      tokens(s, x, p.info?.total_token_usage, p.info?.last_token_usage, p.info?.model_context_window);
+      tokens(s, x, p.info?.total_token_usage, p.info?.last_token_usage, p.info?.model_context_window, ts);
       return;
     case 'thread_settings_applied':
       if (typeof p.thread_settings?.model === 'string') addModel(s, p.thread_settings.model);
@@ -390,6 +401,7 @@ function itemCompleted(s: AccState, x: CodexX, item: Json, ts: number, sink?: De
       if (sink) sink.item(ts, 'result', Object.keys(item.changes ?? {}).join('\n'), s.turns.length, { tool: 'apply_patch', isError: item.status !== 'completed' }, 600);
       return;
     case 'CommandExecution': {
+      if (ts) x.lastInputTs = ts;
       touch(s, ts);
       const failed = item.status === 'failed' || (typeof item.exit_code === 'number' && item.exit_code !== 0);
       if (failed) addToolError(s);

@@ -2,7 +2,8 @@
 // summarized again at most once a day. Runs only when the user turned it on in Settings.
 
 import type { AiSummary, SessionDetail, SessionSummary } from '../shared/types.js';
-import { SUMMARY_FORMAT, aiErrorMessage, readAllAiSummaries, summarizeWithAi, type AiConfig, type AiSettings } from './ai.js';
+import { SUMMARY_FORMAT, aiErrorMessage, complete, readAllAiSummaries, summarizeWithAi, type AiConfig, type AiSettings } from './ai.js';
+import { classifySessions, readCategories, writeCategories, type Categories } from './classify.js';
 
 export { SUMMARY_FORMAT };
 
@@ -16,6 +17,8 @@ export interface AutoStatus {
   pending: number;
   failed: number;
   lastError?: string;
+  /** Smart categories being rebuilt. */
+  classifying?: boolean;
 }
 
 /** Whether a session should be (re)summarized now. */
@@ -39,9 +42,40 @@ export class AutoSummarizer {
       detailOf: (id: string) => Promise<Omit<SessionDetail, 'ai'> | undefined>;
       config: () => { ai?: AiConfig; settings?: AiSettings };
       onSaved: (s: AiSummary) => void;
+      onCategories: (c: Categories) => void;
     },
   ) {
     this.saved = readAllAiSummaries(o.dataDir);
+    this.categories = readCategories(o.dataDir);
+  }
+
+  categories: Categories | undefined;
+
+  /** Rebuilds the smart categories from the recent sessions and their summaries. */
+  async classify(force = false): Promise<void> {
+    const { ai, settings } = this.o.config();
+    if (!ai || this.status.classifying) return;
+    const now = Date.now();
+    if (!force && this.categories && now - this.categories.updatedAt < DAY) return;
+    const recent = this.o.summaries().filter((s) => !s.isSubagent && s.turns > 0 && now - s.end <= AUTO_DAYS * DAY);
+    if (!recent.length) return;
+    this.status.classifying = true;
+    try {
+      const lang = settings?.lang ?? 'en';
+      const c = await classifySessions(
+        recent.map((s) => ({ id: s.id, project: s.project, projectPath: s.projectPath, title: this.saved.get(s.id)?.title ?? s.title, type: this.saved.get(s.id)?.type })),
+        (system, user) => complete(ai, system, user, 8000),
+        { lang, previous: this.categories?.categories.map((x) => x.name), model: ai.model },
+      );
+      if (!c.categories.length) throw new Error('The model returned no categories.');
+      this.categories = c;
+      writeCategories(this.o.dataDir, c);
+      this.o.onCategories(c);
+    } catch (err) {
+      this.status.lastError = aiErrorMessage(err);
+    } finally {
+      this.status.classifying = false;
+    }
   }
 
   /** Checks every hour (first a minute after start, once indexing is done). */
@@ -92,6 +126,7 @@ export class AutoSummarizer {
     } finally {
       this.status.running = false;
     }
+    await this.classify();
     return { ...this.status };
   }
 }

@@ -49,7 +49,8 @@ export function SessionsPage({ selectedId, onSelect, query }: { selectedId?: str
   const [subagents, setSubagents] = usePersisted<boolean>('loggy.subagents', false);
   const [withChanges, setWithChanges] = usePersisted<boolean>('loggy.withChanges', false);
   const [sort, setSort] = usePersisted<Sort>('loggy.sort', 'recent');
-  const [colorBy, setColorBy] = usePersisted<ColorDim>('loggy.colorBy', 'outcome');
+  const [storedColorBy, setColorBy] = usePersisted<ColorDim>('loggy.colorBy', 'outcome');
+  const colorBy: ColorDim = ['outcome', 'agent', 'project', 'category', 'model'].includes(storedColorBy) ? storedColorBy : 'outcome';
   const [showTimeline, setShowTimeline] = usePersisted<boolean>('loggy.timeline', true);
   const q = useDebounced(query.trim(), 150);
   const [hits, setHits] = useState<Set<string> | null>(null);

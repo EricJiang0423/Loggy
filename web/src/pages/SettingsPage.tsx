@@ -176,10 +176,10 @@ function AiSettings() {
   };
   // Poll while a background run is going.
   useEffect(() => {
-    if (!status?.running) return;
+    if (!status?.running && !status?.classifying) return;
     const id = window.setInterval(() => void refreshServer(), 3000);
     return () => window.clearInterval(id);
-  }, [status?.running]);
+  }, [status?.running, status?.classifying]);
   return (
     <>
       <p className="muted">
@@ -276,6 +276,38 @@ function AiSettings() {
           </span>
           <button className="btn" disabled={status?.running} onClick={() => void runAuto()}>
             {t('set.ai.runNow')}
+          </button>
+        </div>
+      )}
+      {server.aiAvailable && (
+        <div style={{ marginTop: 14 }}>
+          <div className="lbl" style={{ fontWeight: 600, marginBottom: 4 }}>
+            {t('set.ai.categories')}
+          </div>
+          {saved.categories?.length ? (
+            <>
+              <ul className="plain">
+                {saved.categories.map((c) => (
+                  <li key={c.name}>
+                    <b>{c.name}</b>
+                    <span className="muted">{c.description}</span>
+                  </li>
+                ))}
+              </ul>
+              <span className="muted">{saved.categorizedAt ? t('set.ai.categoriesAt', { time: relative(saved.categorizedAt, lang) }) : ''} </span>
+            </>
+          ) : (
+            <span className="muted">{t('set.ai.categoriesNone')} </span>
+          )}
+          <button
+            className="btn"
+            disabled={status?.classifying}
+            onClick={async () => {
+              await api.classify();
+              await refreshServer();
+            }}
+          >
+            {status?.classifying ? t('set.ai.classifying') : t('set.ai.reclassify')}
           </button>
         </div>
       )}

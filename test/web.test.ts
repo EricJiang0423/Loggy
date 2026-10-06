@@ -7,8 +7,8 @@ test('the calendar legend folds projects without a color into one Other row', ()
   const week = Array.from({ length: 20 }, (_, i) => ({ project: `p${i}`, models: [] }) as unknown as SessionSummary);
   const slots = slotMap(week, 'project');
   const rows = legendEntries(week, 'project', slots);
-  expect(rows.length).toBe(8);
-  expect(rows[rows.length - 1]).toEqual([OTHER_KEY, 13]);
+  expect(rows.length).toBe(9);
+  expect(rows[rows.length - 1]).toEqual([OTHER_KEY, 12]);
 });
 
 test('period-over-period changes need data covering the whole previous period', () => {
