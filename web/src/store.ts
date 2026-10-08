@@ -92,6 +92,9 @@ export function startSync(): void {
   es.addEventListener('update', () => {
     void refreshSessions();
   });
+  es.addEventListener('remote', () => {
+    void refreshServer();
+  });
   es.addEventListener('progress', (e) => {
     const progress = JSON.parse((e as MessageEvent).data) as IndexProgress;
     set({ progress });

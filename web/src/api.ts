@@ -83,5 +83,6 @@ export const api = {
   testAi: (body: AiForm) => postJson<{ ok: boolean; model: string; ms: number; reply?: string; error?: string }>('api/ai/test', body),
   classify: () => postJson<unknown>('api/ai/classify', {}),
   runAuto: () => postJson<NonNullable<ServerState['ai']['autoStatus']>>('api/ai/auto/run', {}),
+  remote: (body: { host?: string; on?: boolean; cloud?: boolean; add?: { target: string; port?: number; identity?: string }; remove?: string }) => postJson<ServerState>('api/remote', body),
   rescan: (full: boolean) => post<{ ok: boolean }>(`api/rescan${full ? '?full=1' : ''}`),
 };

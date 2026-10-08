@@ -193,6 +193,7 @@ function Header({
       <h2>{detail?.ai?.title || s.title || s.sessionId}</h2>
       <div className="kv">
         <span title={s.cwd}>{shortPath(s.projectPath || s.cwd)}</span>
+        {s.host && <span className="mono">@ {s.host}</span>}
         {s.branch && <span className="mono">{s.branch}</span>}
         {s.models.length > 0 && <span>{s.models.join(', ')}</span>}
       </div>

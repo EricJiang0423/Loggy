@@ -117,6 +117,14 @@ describe('http api', () => {
     expect(r.ids.length).toBeGreaterThan(0);
   });
 
+  test('search finds a Codex thread from its codex:// link', async () => {
+    const all = (await (await fetch(`${app.url}/api/sessions`)).json()) as any;
+    const s = all.sessions.find((x: any) => x.agent === 'codex' && !x.isSubagent);
+    const q = encodeURIComponent(`codex://threads/${s.sessionId}`);
+    const r = (await (await fetch(`${app.url}/api/search?q=${q}`)).json()) as { ids: string[] };
+    expect(r.ids).toContain(s.id);
+  });
+
   test('rejects foreign Host headers (DNS rebinding)', async () => {
     const http = await import('node:http');
     const status = await new Promise<number>((resolve) => {

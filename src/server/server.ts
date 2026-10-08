@@ -18,6 +18,7 @@ import { handOff, TARGETS, type Target } from './launch.js';
 import { globalInstructionFiles, instructionVersion, instructionsFor, readGlobal } from './instructions.js';
 import type { Pool } from './pool.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
+import { hostKey, RemoteSync } from './remote.js';
 import { readMarks, readSettings, writeMarks, writeSettings } from './settings.js';
 
 const MIME: Record<string, string> = {
@@ -50,6 +51,12 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
   const heartbeat = setInterval(() => broadcast('ping', { t: Date.now() }), 20_000);
   heartbeat.unref();
 
+  // Off in the demo: it would pull real hosts into made-up data.
+  const remote = cfg.demo
+    ? undefined
+    : new RemoteSync(cfg.dataDir, () => readSettings(cfg.dataDir).remote ?? {}, (d) => indexer.setExtra(d), () => broadcast('remote', {}));
+  remote?.start();
+
   const state = (): ServerState => ({
     version: cfg.version,
     demo: cfg.demo,
@@ -67,6 +74,7 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
       kimi: (cfg.kimiDirs ?? []).map((d) => path.join(d, 'sessions')),
       pi: cfg.piDirs,
     }),
+    remote: remote?.view(),
   });
 
   /** Projects whose folder is a git repository. */
@@ -282,6 +290,31 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
         writeSettings(cfg.dataDir, { groupBy });
         return sendJson(req, res, state());
       }
+      case '/api/remote': {
+        if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
+        const body = await readJson(req);
+        if (!body || !remote) return sendJson(req, res, { error: 'JSON body required' }, 400);
+        const cur = readSettings(cfg.dataDir).remote ?? {};
+        const next = { ...cur, hosts: [...(cur.hosts ?? [])], on: { ...cur.on } };
+        const add = body.add as { target?: unknown; port?: unknown; identity?: unknown; label?: unknown } | undefined;
+        if (add) {
+          // An ssh destination, not a command line: no leading dash, no spaces.
+          if (typeof add.target !== 'string' || !/^[\w.@-]+$/.test(add.target) || add.target.startsWith('-')) return sendJson(req, res, { error: 'bad host' }, 400);
+          const port = Number(add.port) || undefined;
+          const h = { target: add.target, port, identity: typeof add.identity === 'string' && add.identity ? add.identity : undefined, label: typeof add.label === 'string' && add.label ? add.label : undefined, from: 'manual' as const };
+          next.hosts = [...next.hosts.filter((x) => hostKey(x) !== hostKey(h)), h];
+          next.on[hostKey(h)] = true;
+        }
+        if (typeof body.remove === 'string') {
+          next.hosts = next.hosts.filter((x) => hostKey(x) !== body.remove);
+          delete next.on[body.remove];
+        }
+        if (typeof body.host === 'string' && typeof body.on === 'boolean') next.on[body.host] = body.on;
+        if (typeof body.cloud === 'boolean') next.cloud = body.cloud;
+        writeSettings(cfg.dataDir, { remote: next });
+        remote.apply();
+        return sendJson(req, res, state());
+      }
       case '/api/ai/classify':
         if (req.method !== 'POST') return sendJson(req, res, { error: 'POST required' }, 405);
         if (url.searchParams.get('wait') === '1') await auto.classify(true);
@@ -341,6 +374,7 @@ export function createServer(cfg: Config, indexer: Indexer, pool: Pool, webDir: 
   server.on('close', () => {
     clearInterval(heartbeat);
     auto.stop();
+    remote?.close();
   });
   return server;
 }

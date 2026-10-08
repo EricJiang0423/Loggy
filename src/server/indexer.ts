@@ -11,6 +11,7 @@ import { AGENTS, type Agent, type IndexProgress, type SessionMark, type SessionS
 import { ensureDir } from './config.js';
 import type { Pool } from './pool.js';
 import { readCodexThreads } from './codexstate.js';
+import type { ExtraDir } from './remote.js';
 import { groupProjects, isUnder, readBranch, readRemote, type GroupBy, type Place } from './projects.js';
 
 const CACHE_VERSION = 2;
@@ -72,6 +73,9 @@ export class Indexer extends EventEmitter {
   /** Smart categories (kept by the server). */
   categories?: { sessions: Record<string, string>; projects: Record<string, { category: string }> };
   private known: Discovered[] = [];
+  private base: { claude: string[]; codex: string[] };
+  /** Extra log folder -> the SSH host or cloud its sessions ran on. */
+  private hostOf = new Map<string, string>();
   /** Harnesses turned on in Settings; files of the others are not indexed. */
   enabled = Object.fromEntries(AGENTS.map((a) => [a, true])) as Record<Agent, boolean>;
   readonly cacheFile: string;
@@ -82,6 +86,7 @@ export class Indexer extends EventEmitter {
     dataDir: string,
   ) {
     super();
+    this.base = { claude: [...sources.claudeDirs], codex: [...sources.codexDirs] };
     this.cacheFile = path.join(ensureDir(path.join(dataDir, 'cache')), `index-v${CACHE_VERSION}.json`);
   }
 
@@ -463,6 +468,20 @@ export class Indexer extends EventEmitter {
     void this.scan();
   }
 
+  /** Log folders pulled from SSH hosts or Codex Cloud, next to the local ones. */
+  setExtra(dirs: ExtraDir[]): void {
+    const claude = dirs.flatMap((d) => (d.claude ? [d.claude] : []));
+    const codex = dirs.flatMap((d) => (d.codex ? [d.codex] : []));
+    const next = [...this.base.claude, ...claude].join('\n') + '\0' + [...this.base.codex, ...codex].join('\n');
+    if (next === this.sources.claudeDirs.join('\n') + '\0' + this.sources.codexDirs.join('\n')) return;
+    this.sources.claudeDirs = [...this.base.claude, ...claude];
+    this.sources.codexDirs = [...this.base.codex, ...codex];
+    this.hostOf = new Map(dirs.flatMap((d) => [d.claude, d.codex].filter((x): x is string => !!x).map((x) => [x + path.sep, d.host] as [string, string])));
+    this.gen++;
+    this.removedFloor = this.gen;
+    void this.scan();
+  }
+
   close(): void {
     for (const t of this.timers) clearInterval(t);
     for (const w of this.watchers) w.close();
@@ -488,6 +507,11 @@ export class Indexer extends EventEmitter {
     // Subagents of an earlier file of a forked conversation belong to the merged session.
     const mergedId = this.mergedIds(groups);
     for (const s of merged) if (s.parentId && mergedId.has(s.parentId)) s.parentId = mergedId.get(s.parentId);
+    // By session id: the Claude app also keeps a local copy of SSH sessions (projects/ssh-<id>),
+    // which wins over the pulled one.
+    const hostBySid = new Map<string, string>();
+    for (const e of this.entries.values()) for (const [dir, host] of this.hostOf) if (e.file.startsWith(dir)) hostBySid.set(e.summary.id, host);
+    for (const s of merged) s.host = hostBySid.get(s.id) ?? (s.agent === 'claude' && s.file.includes(`${path.sep}projects${path.sep}ssh-`) ? 'SSH' : undefined);
     // The Codex app's own thread names (latest rename) and the projects the user put threads in.
     const app = this.codexThreads();
     for (const s of merged) {
@@ -636,7 +660,8 @@ export class Indexer extends EventEmitter {
   }
 
   search(q: string): string[] {
-    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    // A pasted codex://threads/<id> link or log path searches by the session id inside it.
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean).map((t) => t.match(UUID)?.[0] ?? t);
     if (!terms.length) return [];
     const mergedId = this.mergedIds(this.groups());
     const out = new Set<string>();

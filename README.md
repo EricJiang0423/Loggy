@@ -30,6 +30,7 @@ Loggy 是 **Claude Code**、**Codex**、**Kimi Code** 和 **Pi** 会话的本地
   - 中途结束
 
   Claude Code 运行时会写 `~/.claude/sessions/<pid>.json`，Loggy 读取它，所以等你确认权限或回答问题时会立刻显示「等你回复」。
+- **远程主机和云端**：设置里列出 Claude 和 Codex 应用里配置过的 SSH 主机，也可以手动添加；打开后每 2 分钟用 rsync 把主机上的 Claude Code / Codex 日志拉到 `~/.loggy/remote/`，会话标出所在主机。也可以打开 Codex Cloud，每 10 分钟用 `codex cloud list` 读取云端任务（标题、状态、改动行数和链接）。Claude Code 云端会话 teleport 到本机后会被统计。都默认关闭。
 - **Pi**：读取 `~/.pi/agent/sessions`（由 @KaiOnCode 贡献），会话、token、改动、提交、压缩、中断和失败的请求都和其他工具一样显示；`/fork` 和 `/clone` 出来的会话和原会话算一个。
 - **自动识别本机的 Harness**：检查每个工具的日志目录、命令行工具和桌面应用，只显示本机有的；设置里列出检测到的，其余的只提一句，接力也只给出本机装了的工具。
 - **Kimi Code**：读取 `~/.kimi-code/sessions` 里每个会话的事件日志，会话、子代理、token 和等价费用、改动的文件、提交、时间线、提问和等待批准都和另外两个工具一样显示；标题用 Kimi Code 里的会话名（改过名就用最新的）。

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Agent, SessionMark } from '../shared/types.js';
 import type { AiSettings } from './ai.js';
+import type { RemoteSettings } from './remote.js';
 import { GROUP_BY, type GroupBy } from './projects.js';
 
 export interface Settings {
@@ -12,6 +13,8 @@ export interface Settings {
   ai?: AiSettings;
   /** Harnesses turned off in Settings are not indexed. */
   harnesses?: Partial<Record<Agent, boolean>>;
+  /** SSH hosts and Codex Cloud. */
+  remote?: RemoteSettings;
 }
 
 export function readSettings(dataDir: string): Settings {
@@ -21,6 +24,7 @@ export function readSettings(dataDir: string): Settings {
       groupBy: GROUP_BY.includes(s.groupBy) ? s.groupBy : undefined,
       ai: s.ai && typeof s.ai === 'object' ? s.ai : undefined,
       harnesses: s.harnesses && typeof s.harnesses === 'object' ? s.harnesses : undefined,
+      remote: s.remote && typeof s.remote === 'object' ? s.remote : undefined,
     };
   } catch {
     return {};

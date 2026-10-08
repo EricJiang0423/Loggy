@@ -122,6 +122,8 @@ export interface SessionSummary {
   /** File mtime, ms. */
   mtime: number;
   status: LiveStatus;
+  /** SSH host or Codex Cloud the session ran on (filled by the server). */
+  host?: string;
   /** Session this one was handed off from: its first prompt names exactly one other session (filled by the server). */
   continues?: string;
   /** Number of subagent sessions attached to this one (filled by the server). */
@@ -299,6 +301,19 @@ export interface ServerState {
   harnesses: Record<Agent, boolean>;
   /** Which harnesses are on this machine (logs, command-line tool or desktop app). */
   installed: HarnessInfo[];
+  remote?: RemoteView;
+}
+
+export interface SyncState {
+  running?: boolean;
+  lastSync?: number;
+  error?: string;
+}
+
+/** SSH hosts (found in the Claude and Codex apps or added by hand) and Codex Cloud. */
+export interface RemoteView {
+  hosts: (SyncState & { key: string; target: string; port?: number; label?: string; from: 'claude' | 'codex' | 'manual'; on: boolean })[];
+  cloud: SyncState & { on: boolean; tasks?: number };
 }
 
 export interface HarnessInfo {

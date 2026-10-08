@@ -114,6 +114,11 @@ export function SettingsPage({ lang, setLang, theme, setTheme }: { lang: Lang; s
           {missing.length > 0 && ` ${t('set.notFound', { names: missing.map((a) => t(agentKey(a))).join(t('set.listSep')) })}`}
         </p>
       </Card>
+      {server?.remote && (
+        <Card title={t('set.remote')}>
+          <RemoteSettings />
+        </Card>
+      )}
       <Card title={t('set.index')}>
         <p>{t('set.indexInfo', { n: int(count, lang), s: progress?.lastDurationMs !== undefined ? duration(Math.max(1000, progress.lastDurationMs), lang) : '–' })}</p>
         <p className="mono" style={{ fontSize: 11 }}>
@@ -333,6 +338,90 @@ function AiSettings() {
       )}
       <p className="muted" style={{ fontSize: 12 }}>
         {t('set.ai.privacy')}
+      </p>
+    </>
+  );
+}
+
+function RemoteSettings() {
+  const { t, lang } = useI18n();
+  const remote = useStore((s) => s.server?.remote);
+  const [target, setTarget] = useState('');
+  const [error, setError] = useState('');
+  if (!remote) return null;
+  const send = async (body: Parameters<typeof api.remote>[0]) => {
+    setError('');
+    try {
+      await api.remote(body);
+      await refreshServer();
+      await refreshSessions();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const status = (x: { running?: boolean; lastSync?: number; error?: string }) =>
+    x.running ? t('set.remote.syncing') : x.error ? <span className="err">{x.error}</span> : x.lastSync ? t('set.remote.synced', { t: relative(x.lastSync, lang) }) : '';
+  return (
+    <>
+      {remote.hosts.length ? (
+        <table className="grid">
+          <tbody>
+            {remote.hosts.map((h) => (
+              <tr key={h.key}>
+                <td>
+                  <label className="chk">
+                    <input type="checkbox" checked={h.on} onChange={(e) => send({ host: h.key, on: e.target.checked })} />
+                    {h.label ?? h.target}
+                  </label>
+                </td>
+                <td className="mono">
+                  {h.target}
+                  {h.port ? `:${h.port}` : ''}
+                </td>
+                <td className="muted">{t(`set.remote.from.${h.from}`)}</td>
+                <td>{h.on && status(h)}</td>
+                <td className="r">
+                  {h.from === 'manual' && (
+                    <button className="btn" onClick={() => send({ remove: h.key })}>
+                      {t('set.remote.remove')}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted">{t('set.remote.none')}</p>
+      )}
+      <form
+        style={{ display: 'flex', gap: 8, margin: '8px 0' }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (target.trim()) void send({ add: { target: target.trim() } }).then(() => setTarget(''));
+        }}
+      >
+        <input className="input" value={target} placeholder={t('set.remote.target')} onChange={(e) => setTarget(e.target.value)} />
+        <button className="btn" type="submit" disabled={!target.trim()}>
+          {t('set.remote.add')}
+        </button>
+      </form>
+      {error && <p className="err">{error}</p>}
+      <p className="muted" style={{ fontSize: 12 }}>
+        {t('set.remote.help')}
+      </p>
+      <label className="chk">
+        <input type="checkbox" checked={remote.cloud.on} onChange={(e) => send({ cloud: e.target.checked })} />
+        {t('set.remote.cloud')}
+      </label>{' '}
+      {remote.cloud.on && (
+        <span className="muted">
+          {status(remote.cloud)}
+          {remote.cloud.tasks !== undefined && ` · ${t('set.remote.tasks', { n: remote.cloud.tasks })}`}
+        </span>
+      )}
+      <p className="muted" style={{ fontSize: 12 }}>
+        {t('set.remote.cloudHelp')}
       </p>
     </>
   );
