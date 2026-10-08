@@ -185,6 +185,11 @@ export class RemoteSync {
       return { claude: path.join(root, 'claude'), codex: path.join(root, 'codex'), host: host.label ?? host.target };
     });
     if (this.settings().cloud) dirs.push({ codex: path.join(this.dataDir, 'cloud', 'codex'), host: 'Codex Cloud' });
+    // Made now, so the scan that follows doesn't list them as missing before the first sync.
+    for (const d of dirs) {
+      if (d.claude) fs.mkdirSync(path.join(d.claude, 'projects'), { recursive: true });
+      if (d.codex) fs.mkdirSync(path.join(d.codex, 'sessions'), { recursive: true });
+    }
     this.setExtra(dirs);
     void this.tick(true);
   }
