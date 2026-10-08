@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 - 2026-10-08
+
+### Added
+
+- **SSH hosts.** Settings → Remote hosts & cloud lists the SSH hosts set up in the Claude and Codex desktop apps, and you can add your own (`user@host` or an ssh alias). A host you turn on is pulled with rsync every 2 minutes (Claude Code `projects/`, Codex `sessions/`, `archived_sessions/` and thread names) into `~/.loggy/remote/<host>/`, indexed like local logs, and each session shows the host it ran on. The host must accept your key without a password; a failed sync shows its error next to the host. Detected hosts start off.
+- **Codex Cloud tasks.** Turned on in the same card, Loggy reads `codex cloud list` every 10 minutes with your Codex login and shows each task as a session: title, status, changed lines and link, grouped with the local clone when the environment is named `owner/repo`. A failed request is tried twice more.
+- Sessions the Claude app keeps a local copy of while running over SSH (`projects/ssh-<id>`) are labeled SSH, or with the host's name once that host is synced.
+
+### Fixed
+
+- Pasting a `codex://threads/<id>` link or a log path into the search box finds that session (it searches by the id inside).
+
 ## 0.8.0 - 2026-10-07
 
 ### Added

@@ -76,10 +76,10 @@ Git 页：提交图、每轮对话的提交和 diff：
 
 ```sh
 # 不安装，直接运行一次
-npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.8.0/loggy-0.8.0.tgz
+npx --yes https://github.com/EricJiang0423/Loggy/releases/download/v0.9.0/loggy-0.9.0.tgz
 
 # 或者安装 loggy 命令
-npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.8.0/loggy-0.8.0.tgz
+npm install -g https://github.com/EricJiang0423/Loggy/releases/download/v0.9.0/loggy-0.9.0.tgz
 loggy
 ```
 

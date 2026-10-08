@@ -97,7 +97,8 @@ export async function syncCodexCloud(dir: string, pages = 5): Promise<number> {
   const tasks: CloudTask[] = [];
   let cursor: string | null = null;
   for (let i = 0; i < pages; i++) {
-    const out = await run('codex', ['cloud', 'list', '--json', '--limit', '20', ...(cursor ? ['--cursor', cursor] : [])], 60_000, dir); // it writes error.log where it runs
+    const args = ['cloud', 'list', '--json', '--limit', '20', ...(cursor ? ['--cursor', cursor] : [])];
+    const out = await retry(() => run('codex', args, 60_000, dir)); // it writes error.log where it runs
     const page = JSON.parse(out) as { tasks?: CloudTask[]; cursor?: string | null };
     tasks.push(...(page.tasks ?? []));
     cursor = page.cursor ?? null;
@@ -250,6 +251,18 @@ export class RemoteSync {
       hosts: allHosts(s.hosts, this.home).map((h) => ({ key: hostKey(h), target: h.target, port: h.port, label: h.label, from: h.from, on: on.has(hostKey(h)), ...this.hosts.get(hostKey(h)) })),
       cloud: { on: !!s.cloud, ...this.cloud },
     };
+  }
+}
+
+/** chatgpt.com drops requests now and then (slow proxies): two more tries before giving up. */
+async function retry<T>(f: () => Promise<T>, tries = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await f();
+    } catch (err) {
+      if (i >= tries) throw err;
+      await new Promise((r) => setTimeout(r, 3000 * i));
+    }
   }
 }
 
